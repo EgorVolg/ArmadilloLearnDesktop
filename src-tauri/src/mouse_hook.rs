@@ -6,12 +6,13 @@ use std::{
     },
     thread::{self, JoinHandle},
 };
+use windows::Win32::UI::WindowsAndMessaging::PEEK_MESSAGE_REMOVE_TYPE;
 use windows::Win32::{
     Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM},
     UI::WindowsAndMessaging::{
-        CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW, SetWindowsHookExW,
-        TranslateMessage, UnhookWindowsHookEx, MSG, MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_MBUTTONDOWN,
-        WM_QUIT,
+        CallNextHookEx, DispatchMessageW, GetMessageW, PeekMessageW, PostThreadMessageW,
+        SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, MSG, MSLLHOOKSTRUCT, WH_MOUSE_LL,
+        WM_MBUTTONDOWN, WM_QUIT,
     },
 };
 
@@ -44,8 +45,12 @@ impl MouseHook {
         let (ready_tx, ready_rx) = mpsc::channel::<u32>();
 
         let thread = thread::spawn(move || {
-            let thread_id = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
+            unsafe {
+                let mut msg = MSG::default();
 
+                let _ = PeekMessageW(&mut msg, None, 0, 0, PEEK_MESSAGE_REMOVE_TYPE(0));
+            }
+            let thread_id = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
             ready_tx.send(thread_id).unwrap();
 
             let hook = unsafe {
