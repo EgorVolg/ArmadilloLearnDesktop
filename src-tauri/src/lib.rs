@@ -10,7 +10,7 @@ use tauri::Manager;
 use window_manager::MonitorInfo;
 
 // Импорты для глобального хука мыши (низкоуровневый WinAPI hook)
-use std::sync::{mpsc, Mutex};
+use std::sync::{mpsc, OnceLock};
 use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, SetWindowsHookExW, UnhookWindowsHookEx, MSLLHOOKSTRUCT, WH_MOUSE_LL,
@@ -18,8 +18,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 // Глобальная переменная для передачи координат из хука в основной поток
-// Используется Mutex для безопасного доступа из нескольких потоков
-static GLOBAL_TX: Mutex<Option<mpsc::Sender<(i32, i32)>>> = Mutex::new(None);
+
+static GLOBAL_TX: OnceLock<mpsc::Sender<(i32, i32)>> = OnceLock::new();
 
 /// Низкоуровневый хук для мыши (WH_MOUSE_LL)
 /// Вызывается системой при каждом событии мыши
@@ -32,7 +32,7 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
         let y = info.pt.y;
 
         // Отправляем координаты через канал, если он существует
-        if let Some(tx) = GLOBAL_TX.lock().unwrap().as_ref() {
+        if let Some(tx) = GLOBAL_TX.get() {
             let _ = tx.send((x, y));
         }
     }
@@ -71,7 +71,7 @@ pub fn run() {
 
             // Канал для получения координат из хука
             let (tx, rx) = mpsc::channel::<(i32, i32)>();
-            *GLOBAL_TX.lock().unwrap() = Some(tx);
+            GLOBAL_TX.set(tx).unwrap();
 
             // Устанавливаем хук (WH_MOUSE_LL позволяет работать без инжекта DLL)
             unsafe {
