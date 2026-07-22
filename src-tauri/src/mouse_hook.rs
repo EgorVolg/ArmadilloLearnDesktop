@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::{
     sync::{
         mpsc::{self, Sender},
@@ -5,7 +6,6 @@ use std::{
     },
     thread::{self, JoinHandle},
 };
-
 use windows::Win32::{
     Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM},
     UI::WindowsAndMessaging::{
@@ -26,6 +26,10 @@ pub struct MouseHook {
     thread: Option<JoinHandle<()>>,
 }
 
+struct HookState {
+    tx: Sender<(i32, i32)>,
+}
+
 impl MouseHook {
     pub fn install(tx: Sender<(i32, i32)>) -> Result<Self, windows::core::Error> {
         //
@@ -33,7 +37,9 @@ impl MouseHook {
         // чтобы callback никогда не поймал None.
         //
 
-        set_sender(tx);
+        let state = Arc::new(HookState { tx });
+
+        set_state(state);
 
         let (ready_tx, ready_rx) = mpsc::channel::<u32>();
 
@@ -127,14 +133,14 @@ unsafe fn mouse_click_from_lparam(lparam: LPARAM) -> MouseClick {
 // Callback communication
 // ======================================================
 
-static CLICK_TX: OnceLock<Sender<(i32, i32)>> = OnceLock::new();
+static HOOK_STATE: OnceLock<Arc<HookState>> = OnceLock::new();
 
-fn set_sender(tx: Sender<(i32, i32)>) {
-    let _ = CLICK_TX.set(tx);
+fn set_state(state: Arc<HookState>) {
+    let _ = HOOK_STATE.set(state);
 }
 
 fn send_click(click: MouseClick) {
-    if let Some(tx) = CLICK_TX.get() {
-        let _ = tx.send((click.x, click.y));
+    if let Some(state) = HOOK_STATE.get() {
+        let _ = state.tx.send((click.x, click.y));
     }
 }
