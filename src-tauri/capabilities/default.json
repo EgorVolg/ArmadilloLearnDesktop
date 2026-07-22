@@ -7,11 +7,11 @@
     "core:default",
     "opener:default",
     "core:window:allow-set-always-on-top",
-    "global-shortcut:default",
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-focus",
     "core:window:allow-set-size",
+    "core:window:allow-set-position",
     "core:window:allow-is-visible"
   ]
 }
