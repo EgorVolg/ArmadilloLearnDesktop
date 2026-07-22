@@ -24,3 +24,4 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 tauri-plugin-global-shortcut = "2"
+mouse_position = "0.1.4"
