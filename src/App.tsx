@@ -1,6 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./App.css";
 import flag from "./assets/Flag_of_Russia.png";
+
+interface TranslationData {
+  sentence: string;
+  word: string;
+  sentence_translation: string;
+  word_translation: string;
+  synonyms: string[];
+  part_of_speech: string;
+  topic: string;
+}
 
 const bookmark = (
   <svg
@@ -27,7 +37,23 @@ const bookmark_check = (
 );
 
 function App() {
-  const [check, setCheck] = useState(false); 
+  const [check, setCheck] = useState(false);
+  const [translationData, setTranslationData] = useState<TranslationData>();
+
+  useEffect(() => {
+    const handler = () => {
+      const data = (window as any).__translationData;
+
+      console.log(data);
+      setTranslationData(data);
+    };
+    window.addEventListener("translationDataReady", handler);
+    return () => window.removeEventListener("translationDataReady", handler);
+  }, []);
+
+  if (!translationData) {
+    return null;
+  }
 
   return (
     <div className="App">
@@ -40,7 +66,7 @@ function App() {
             <h1>Слово</h1>
             <hr />
           </div>
-          <section className="word">Capability</section>
+          <section className="word">{translationData.word}</section>
         </article>
 
         <article>
@@ -50,23 +76,21 @@ function App() {
           </section>
 
           <section className="tags">
-            <span>Noun</span>
-            <span>Programming</span>
+            <span>{translationData.part_of_speech}</span>
+            <span>{translationData.topic}</span>
           </section>
 
           <section className="word">
             <img src={flag} alt="russian language" />
-            Возможность
+            {translationData.word_translation}
           </section>
 
           <section className="definition">
-            The power or ability to do something, or a specific feature or
-            function that a system has The power or ability to do something, or
-            a specific feature or function that a system has
+            {translationData.sentence_translation}
           </section>
 
           <section className="synonyms">
-            Synonyms:<span>&nbsp;ability, capacity, functionality</span>
+            Synonyms:<span>&nbsp;{translationData.synonyms.join(", ")}</span>
           </section>
         </article>
       </main>

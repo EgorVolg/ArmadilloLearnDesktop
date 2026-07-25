@@ -1,9 +1,11 @@
+mod ai;
 mod mouse_hook;
 mod ocr;
 mod window_manager;
 
 use std::sync::mpsc;
 
+use ai::translate;
 use mouse_hook::MouseHook;
 
 use ocr::{capture_area, get_word_at_position, ocr_from_png};
@@ -12,13 +14,22 @@ use tauri::Manager;
 
 use window_manager::MonitorInfo;
 
+use crate::ai::TranslationResult;
+
 const OCR_WIDTH: u32 = 250;
 const OCR_HEIGHT: u32 = 50;
 
 const OCR_CENTER_X: f32 = OCR_WIDTH as f32 / 2.0;
 const OCR_CENTER_Y: f32 = OCR_HEIGHT as f32 / 2.0;
 
+#[tauri::command]
+async fn translate_text(full_text: String, word: String) -> Result<TranslationResult, String> {
+    ai::translate(&full_text, &word).await
+}
+
 pub fn run() {
+    dotenv::dotenv().ok();
+
     tauri::Builder::default()
         .setup(|app| {
             //
@@ -72,6 +83,7 @@ pub fn run() {
                     println!("Middle click at ({},{})", x, y);
 
                     if let Some(png_bytes) = capture_area(x, y, OCR_WIDTH, OCR_HEIGHT) {
+                        
                         let app_handle = app_handle.clone();
 
                         tauri::async_runtime::spawn(async move {
@@ -82,6 +94,34 @@ pub fn run() {
                                     if let Some(word) =
                                         get_word_at_position(&text, OCR_CENTER_X, OCR_CENTER_Y)
                                     {
+                                        let full_text = text.clone();
+
+                                        let translation_result = match translate(&full_text, &word).await {
+                                            Ok(r) => {
+                                                println!(
+                                                    "Translation response: {{\"sentence\": \"{}\", \"word\": \"{}\", \"sentence_translation\": \"{}\", \"word_translation\": \"{}\", \"synonyms\": {:?}, \"part_of_speech\": \"{}\", \"topic\": \"{}\"}}",
+                                                    full_text,
+                                                    word,
+                                                    r.sentence_translation,
+                                                    r.word_translation,
+                                                    r.synonyms,
+                                                    r.part_of_speech,
+                                                    r.topic
+                                                );
+                                                r
+                                            }
+                                            Err(e) => {
+                                                eprintln!("AI error: {}", e);
+                                                ai::TranslationResult {
+                                                    sentence_translation: "ошибка".into(),
+                                                    word_translation: "ошибка".into(),
+                                                    synonyms: vec![],
+                                                    part_of_speech: "".into(),
+                                                    topic: "".into(),
+                                                }
+                                            }
+                                        };
+
                                         if let Some(window) = app_handle.get_webview_window("main")
                                         {
                                             let _ = window_manager::reposition_and_show(
@@ -90,25 +130,30 @@ pub fn run() {
                                             );
 
                                             //
-                                            // Безопасный JSON вместо
-                                            // ручной строки JS
+                                            // Отправляем полные данные перевода
                                             //
 
-                                            let word_json = serde_json::to_string(&word).unwrap();
+                                            let payload = serde_json::json!({
+                                                "sentence": full_text,
+                                                "word": word,
+                                                "sentence_translation": translation_result.sentence_translation,
+                                                "word_translation": translation_result.word_translation,
+                                                "synonyms": translation_result.synonyms,
+                                                "part_of_speech": translation_result.part_of_speech,
+                                                "topic": translation_result.topic,
+                                            });
+                                            let json_str = payload.to_string();
 
                                             let js = format!(
                                                 "
-                                                    window.__translationData = {{
-                                                        word: {}
-                                                    }};
-
+                                                    window.__translationData = {};
                                                     window.dispatchEvent(
                                                         new Event(
                                                             'translationDataReady'
                                                         )
                                                     );
                                                     ",
-                                                word_json
+                                                json_str
                                             );
 
                                             let _ = window.eval(&js);
