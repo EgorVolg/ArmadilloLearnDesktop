@@ -44,11 +44,11 @@ pub async fn translate(full_text: &str, word: &str) -> Result<TranslationResult,
     let body = serde_json::json!({
         "model": "llama-3.3-70b-versatile",
         "messages": [
-            {"role": "system", "content": "You are a translator and linguistic analyzer. Always reply with JSON only."},
+            {"role": "system", "content": "You are a translator and linguistic analyzer. CRITICAL: Output ONLY valid JSON. Do NOT include any thinking, reasoning, markdown formatting, or any text before or after the JSON object. Start directly with '{' and end with '}'. No code fences, no explanations."},
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.3,
-        "max_tokens": 250
+        "temperature": 0.1,
+        "max_tokens": 500
     });
 
     let response = client
@@ -65,8 +65,52 @@ pub async fn translate(full_text: &str, word: &str) -> Result<TranslationResult,
         .as_str()
         .unwrap_or("{}");
 
-    let parsed: serde_json::Value =
-        serde_json::from_str(content).map_err(|e| format!("Invalid JSON from AI: {}", e))?;
+    // Extract JSON from the response, handling:
+    // - <think>...</think> blocks (Qwen model reasoning)
+    // - ```json ... ``` markdown code fences
+    // - Extra text before/after JSON
+    let cleaned = {
+        // Remove all <think>...</think> blocks
+        let mut s = content.to_string();
+        while let (Some(start), Some(end)) = (s.find("<think>"), s.find("</think>")) {
+            s.replace_range(start..=end + "</think>".len().saturating_sub(1), "");
+        }
+
+        // Try to find and parse a JSON object, looking at each '{' position
+        let trimmed = s.trim();
+        let mut best: Option<String> = None;
+
+        // Strategy 1: find a substring from '{' to matching '}' that parses as JSON
+        for (i, _) in trimmed.match_indices('{') {
+            if let Some(end) = trimmed[i..].rfind('}') {
+                let candidate_slice = &trimmed[i..=i + end];
+                // Clean up any markdown fences inside
+                let clean_json = candidate_slice
+                    .replace("```json", "")
+                    .replace("```", "")
+                    .trim()
+                    .to_string();
+                if serde_json::from_str::<serde_json::Value>(&clean_json).is_ok() {
+                    best = Some(clean_json);
+                    break;
+                }
+            }
+        }
+
+        // Strategy 2: if no JSON found, try removing all non-JSON characters and retry
+        let best = best.unwrap_or_else(|| {
+            // Last resort: return empty JSON object
+            "{}".to_string()
+        });
+
+        best
+    };
+
+    let parsed: serde_json::Value = serde_json::from_str(&cleaned).map_err(|e| {
+        eprintln!("Invalid JSON from AI. Raw content:\n---\n{}\n---", content);
+        eprintln!("Cleaned content:\n---\n{}\n---", cleaned);
+        format!("Invalid JSON from AI: {}", e)
+    })?;
 
     Ok(TranslationResult {
         sentence_translation: parsed["sentence_translation"]

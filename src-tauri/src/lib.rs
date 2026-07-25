@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use ai::translate;
 use mouse_hook::MouseHook;
 
-use ocr::{capture_area, get_word_at_position, ocr_from_png};
+use ocr::{capture_area, get_word_at_position, ocr_from_png_with_words};
 
 use tauri::Manager;
 
@@ -16,8 +16,8 @@ use window_manager::MonitorInfo;
 
 use crate::ai::TranslationResult;
 
-const OCR_WIDTH: u32 = 250;
-const OCR_HEIGHT: u32 = 50;
+const OCR_WIDTH: u32 = 400;
+const OCR_HEIGHT: u32 = 100;
 
 const OCR_CENTER_X: f32 = OCR_WIDTH as f32 / 2.0;
 const OCR_CENTER_Y: f32 = OCR_HEIGHT as f32 / 2.0;
@@ -87,20 +87,27 @@ pub fn run() {
                         let app_handle = app_handle.clone();
 
                         tauri::async_runtime::spawn(async move {
-                            match ocr_from_png(png_bytes).await {
-                                Ok(text) => {
-                                    println!("OCR: {}", text);
+                            match ocr_from_png_with_words(png_bytes).await {
+                                Ok(words) => {
+                                    // Собираем полный текст из всех слов для отправки в AI
+                                    let full_text: String = words
+                                        .iter()
+                                        .map(|w| w.text.as_str())
+                                        .collect::<Vec<&str>>()
+                                        .join(" ");
+
+                                    println!("OCR: {}", full_text);
 
                                     if let Some(word) =
-                                        get_word_at_position(&text, OCR_CENTER_X, OCR_CENTER_Y)
+                                        get_word_at_position(&words, OCR_CENTER_X, OCR_CENTER_Y)
                                     {
-                                        let full_text = text.clone();
+                                        let full_text_clone = full_text.clone();
 
-                                        let translation_result = match translate(&full_text, &word).await {
+                                        let translation_result = match translate(&full_text_clone, &word).await {
                                             Ok(r) => {
                                                 println!(
                                                     "Translation response: {{\"sentence\": \"{}\", \"word\": \"{}\", \"sentence_translation\": \"{}\", \"word_translation\": \"{}\", \"synonyms\": {:?}, \"part_of_speech\": \"{}\", \"topic\": \"{}\"}}",
-                                                    full_text,
+                                                    full_text_clone,
                                                     word,
                                                     r.sentence_translation,
                                                     r.word_translation,
@@ -134,7 +141,7 @@ pub fn run() {
                                             //
 
                                             let payload = serde_json::json!({
-                                                "sentence": full_text,
+                                                "sentence": full_text_clone,
                                                 "word": word,
                                                 "sentence_translation": translation_result.sentence_translation,
                                                 "word_translation": translation_result.word_translation,
