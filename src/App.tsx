@@ -52,7 +52,15 @@ function App() {
   }, []);
 
   if (!translationData) {
-    return null;
+    return setTranslationData({
+      sentence: "",
+      word: "",
+      sentence_translation: "",
+      word_translation: "",
+      synonyms: [],
+      part_of_speech: "",
+      topic: "",
+    } as TranslationData);
   }
 
   return (
