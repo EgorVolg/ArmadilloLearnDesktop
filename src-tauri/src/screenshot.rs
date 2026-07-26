@@ -18,20 +18,20 @@ fn default_path(prefix: &str) -> PathBuf {
 /// Делает скриншот всего экрана и возвращает PNG-байты (без сохранения в файл)
 pub fn capture_full_screen_bytes() -> Result<Vec<u8>, String> {
     let ps_script = r#"
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-$screen = [System.Windows.Forms.Screen]::PrimaryScreen
-$bounds = $screen.Bounds
-$bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-$graphics.CopyFromScreen($bounds.X, $bounds.Y, 0, 0, $bounds.Size)
-$ms = New-Object System.IO.MemoryStream
-$bitmap.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-$graphics.Dispose()
-$bitmap.Dispose()
-[System.Convert]::ToBase64String($ms.ToArray())
-$ms.Dispose()
-"#;
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+    $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+    $bounds = $screen.Bounds
+    $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $graphics.CopyFromScreen($bounds.X, $bounds.Y, 0, 0, $bounds.Size)
+    $ms = New-Object System.IO.MemoryStream
+    $bitmap.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+    $graphics.Dispose()
+    $bitmap.Dispose()
+    [System.Convert]::ToBase64String($ms.ToArray())
+    $ms.Dispose()
+    "#;
 
     let output = std::process::Command::new("powershell")
         .args(["-NoProfile", "-Command", &ps_script])
@@ -59,18 +59,18 @@ pub fn capture_area_bytes(
 ) -> Result<Vec<u8>, String> {
     let ps_script = format!(
         r#"
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-$bitmap = New-Object System.Drawing.Bitmap {}, {}
-$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-$graphics.CopyFromScreen({}, {}, 0, 0, $bitmap.Size)
-$ms = New-Object System.IO.MemoryStream
-$bitmap.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-$graphics.Dispose()
-$bitmap.Dispose()
-[System.Convert]::ToBase64String($ms.ToArray())
-$ms.Dispose()
-"#,
+        Add-Type -AssemblyName System.Windows.Forms
+        Add-Type -AssemblyName System.Drawing
+        $bitmap = New-Object System.Drawing.Bitmap {}, {}
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        $graphics.CopyFromScreen({}, {}, 0, 0, $bitmap.Size)
+        $ms = New-Object System.IO.MemoryStream
+        $bitmap.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+        $graphics.Dispose()
+        $bitmap.Dispose()
+        [System.Convert]::ToBase64String($ms.ToArray())
+        $ms.Dispose()
+        "#,
         width, height, x, y
     );
 
@@ -104,17 +104,17 @@ pub fn capture_full_screen(output_path: Option<&str>) -> Result<String, String> 
     // Используем PowerShell для скриншота через .NET
     let ps_script = format!(
         r#"
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-$screen = [System.Windows.Forms.Screen]::PrimaryScreen
-$bounds = $screen.Bounds
-$bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-$graphics.CopyFromScreen($bounds.X, $bounds.Y, 0, 0, $bounds.Size)
-$bitmap.Save('{}', [System.Drawing.Imaging.ImageFormat]::Png)
-$graphics.Dispose()
-$bitmap.Dispose()
-"#,
+        Add-Type -AssemblyName System.Windows.Forms
+        Add-Type -AssemblyName System.Drawing
+        $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+        $bounds = $screen.Bounds
+        $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        $graphics.CopyFromScreen($bounds.X, $bounds.Y, 0, 0, $bounds.Size)
+        $bitmap.Save('{}', [System.Drawing.Imaging.ImageFormat]::Png)
+        $graphics.Dispose()
+        $bitmap.Dispose()
+        "#,
         path_str.replace("'", "''")
     );
 
@@ -150,14 +150,14 @@ pub fn capture_area(
     // Используем PowerShell для скриншота области через .NET
     let ps_script = format!(
         r#"
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-$bitmap = New-Object System.Drawing.Bitmap {}, {}
-$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-$graphics.CopyFromScreen({}, {}, 0, 0, $bitmap.Size)
-$bitmap.Save('{}', [System.Drawing.Imaging.ImageFormat]::Png)
-$graphics.Dispose()
-$bitmap.Dispose()
+        Add-Type -AssemblyName System.Windows.Forms
+        Add-Type -AssemblyName System.Drawing
+        $bitmap = New-Object System.Drawing.Bitmap {}, {}
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        $graphics.CopyFromScreen({}, {}, 0, 0, $bitmap.Size)
+        $bitmap.Save('{}', [System.Drawing.Imaging.ImageFormat]::Png)
+        $graphics.Dispose()
+        $bitmap.Dispose()
 "#,
         width,
         height,

@@ -47,13 +47,14 @@ pub fn run() {
 
             app.manage(mouse_hook);
 
-            let app_handle = app.handle().clone();
+            let app_handle_clone = app.handle().clone();
 
-            std::thread::spawn(move || {
+            tauri::async_runtime::spawn(async move {
+                let rx = rx;
                 while let Ok((x, y)) = rx.recv() {
                     // Показываем окно при клике
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = reposition_and_show(&app_handle, &window);
+                    if let Some(window) = app_handle_clone.get_webview_window("main") {
+                        let _ = reposition_and_show(&app_handle_clone, &window);
                     }
 
                     // Сохраняем скриншоты на диск для отладки
@@ -63,7 +64,7 @@ pub fn run() {
 
                     let area_x = x - 100;
                     let area_y = y - 100;
-                    if let Err(e) = capture_area(area_x, area_y, 200, 200, None) {
+                    if let Err(e) = capture_area(area_x, area_y, 200, 100, None) {
                         eprintln!("Area save error: {}", e);
                     }
 
@@ -95,9 +96,16 @@ pub fn run() {
                         &area_bytes,
                     );
 
-                    // Отправляем в API
-                    match fetch_translation_from_api(&full_b64, "image/png", &area_b64, "image/png")
-                    {
+                    // Отправляем в API (асинхронный вызов)
+                    let result = fetch_translation_from_api(
+                        full_b64.clone(),
+                        "image/png".to_string(),
+                        area_b64.clone(),
+                        "image/png".to_string(),
+                    )
+                    .await;
+
+                    match result {
                         Ok(result) => {
                             println!("=== Translation Result ===");
                             println!("Sentence: {}", result.sentence_translation);
@@ -109,7 +117,7 @@ pub fn run() {
 
                             // Отправляем данные на фронтенд
                             let payload = serde_json::to_value(&result).unwrap_or_default();
-                            let _ = app_handle.emit("translationDataReady", payload);
+                            let _ = app_handle_clone.emit("translationDataReady", payload);
                         }
                         Err(e) => {
                             eprintln!("API error: {}", e);

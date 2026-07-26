@@ -49,16 +49,16 @@ pub struct TranslationResult {
     pub topic: String,
 }
 
-pub fn fetch_translation_from_api(
-    image1_base64: &str,
-    mime1: &str,
-    image2_base64: &str,
-    mime2: &str,
+pub async fn fetch_translation_from_api(
+    image1_base64: String,
+    mime1: String,
+    image2_base64: String,
+    mime2: String,
 ) -> Result<TranslationResult, String> {
     let api_key = env::var("ZHIPU_API_KEY").map_err(|_| "ZHIPU_API_KEY not set".to_string())?;
 
     let url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::Client::new();
 
     let data_uri1 = format!("data:{};base64,{}", mime1, image1_base64);
     let data_uri2 = format!("data:{};base64,{}", mime2, image2_base64);
@@ -80,7 +80,7 @@ JSON format:
 {"sentence":"...","word":"...","sentence_translation":"...","word_translation":"...","synonyms":["...","..."],"part_of_speech":"...","topic":"..."}"#;
 
     let body = serde_json::json!({
-        "model": "glm-5v-turbo",          // <-- новая модель
+        "model": "glm-5v-turbo",
         "messages": [
             {
                 "role": "system",
@@ -97,7 +97,7 @@ JSON format:
         ],
         "temperature": 0.1,
         "max_tokens": 1024,
-        "thinking": {                    // <-- отключаем режим размышлений
+        "thinking": {
             "type": "disabled"
         }
     });
@@ -108,9 +108,10 @@ JSON format:
         .header("Content-Type", "application/json")
         .json(&body)
         .send()
+        .await
         .map_err(|e| e.to_string())?;
 
-    let data: serde_json::Value = response.json().map_err(|e| e.to_string())?;
+    let data: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
     let content = data["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or("{}");
