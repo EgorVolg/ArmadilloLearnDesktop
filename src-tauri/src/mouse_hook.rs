@@ -33,11 +33,6 @@ struct HookState {
 
 impl MouseHook {
     pub fn install(tx: Sender<(i32, i32)>) -> Result<Self, windows::core::Error> {
-        //
-        // Сначала регистрируем sender,
-        // чтобы callback никогда не поймал None.
-        //
-
         let state = Arc::new(HookState { tx });
 
         set_state(state);
@@ -47,9 +42,9 @@ impl MouseHook {
         let thread = thread::spawn(move || {
             unsafe {
                 let mut msg = MSG::default();
-
                 let _ = PeekMessageW(&mut msg, None, 0, 0, PEEK_MESSAGE_REMOVE_TYPE(0));
             }
+
             let thread_id = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
             ready_tx.send(thread_id).unwrap();
 
@@ -64,7 +59,6 @@ impl MouseHook {
             .expect("Failed to install mouse hook");
 
             let mut msg = MSG::default();
-
             while unsafe { GetMessageW(&mut msg, None, 0, 0) }.into() {
                 unsafe {
                     let _ = TranslateMessage(&msg);
@@ -90,10 +84,6 @@ impl MouseHook {
 
 impl Drop for MouseHook {
     fn drop(&mut self) {
-        //
-        // Просим message loop завершиться
-        //
-
         unsafe {
             let _ = PostThreadMessageW(self.stop_thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
         }
@@ -103,10 +93,6 @@ impl Drop for MouseHook {
         }
     }
 }
-
-// ======================================================
-// WinAPI callback
-// ======================================================
 
 unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 && wparam.0 == WM_MBUTTONDOWN as usize {
@@ -119,13 +105,6 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
 }
 
 unsafe fn mouse_click_from_lparam(lparam: LPARAM) -> MouseClick {
-    //
-    // SAFETY:
-    //
-    // WH_MOUSE_LL гарантирует,
-    // что LPARAM содержит MSLLHOOKSTRUCT
-    //
-
     let info = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
 
     MouseClick {
@@ -133,10 +112,6 @@ unsafe fn mouse_click_from_lparam(lparam: LPARAM) -> MouseClick {
         y: info.pt.y,
     }
 }
-
-// ======================================================
-// Callback communication
-// ======================================================
 
 static HOOK_STATE: OnceLock<Arc<HookState>> = OnceLock::new();
 

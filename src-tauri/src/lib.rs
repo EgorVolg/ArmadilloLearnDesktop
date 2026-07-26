@@ -1,41 +1,27 @@
-mod ai;
+mod api;
 mod mouse_hook;
-mod ocr;
+mod screenshot;
 mod window_manager;
 
-use std::sync::mpsc;
-
-use ai::translate;
 use mouse_hook::MouseHook;
-
-use ocr::{capture_area, get_word_at_position, ocr_from_png_with_words};
 
 use tauri::Manager;
 
-use window_manager::MonitorInfo;
+use window_manager::{reposition_and_show, MonitorInfo};
 
-use crate::ai::TranslationResult;
+use screenshot::{
+    capture_area, capture_area_bytes, capture_full_screen, capture_full_screen_bytes,
+};
 
-const OCR_WIDTH: u32 = 400;
-const OCR_HEIGHT: u32 = 100;
-
-const OCR_CENTER_X: f32 = OCR_WIDTH as f32 / 2.0;
-const OCR_CENTER_Y: f32 = OCR_HEIGHT as f32 / 2.0;
-
-#[tauri::command]
-async fn translate_text(full_text: String, word: String) -> Result<TranslationResult, String> {
-    ai::translate(&full_text, &word).await
-}
+use api::fetch_translation_from_api;
+use serde_json;
+use tauri::Emitter;
 
 pub fn run() {
     dotenv::dotenv().ok();
 
     tauri::Builder::default()
         .setup(|app| {
-            //
-            // Monitor info
-            //
-
             if let Some(monitor) = app.primary_monitor()? {
                 let size = monitor.size();
                 let position = monitor.position();
@@ -55,133 +41,79 @@ pub fn run() {
                 });
             }
 
-            //
-            // Mouse hook
-            //
-
-            let app_handle = app.handle().clone();
-
-            let (tx, rx) = mpsc::channel::<(i32, i32)>();
+            let (tx, rx) = std::sync::mpsc::channel::<(i32, i32)>();
 
             let mouse_hook = MouseHook::install(tx).expect("Failed to install mouse hook");
 
-            //
-            // Сохраняем hook в Tauri state.
-            //
-            // Иначе Drop сработает после setup
-            // и hook будет снят.
-            //
-
             app.manage(mouse_hook);
 
-            //
-            // Click processing thread
-            //
+            let app_handle = app.handle().clone();
 
             std::thread::spawn(move || {
-                for (x, y) in rx {
-                    println!("Middle click at ({},{})", x, y);
+                while let Ok((x, y)) = rx.recv() {
+                    // // Показываем окно при клике
+                    // if let Some(window) = app_handle.get_webview_window("main") {
+                    //     let _ = reposition_and_show(&app_handle, &window);
+                    // }
 
-                    if let Some(png_bytes) = capture_area(x, y, OCR_WIDTH, OCR_HEIGHT) {
-                        
-                        let app_handle = app_handle.clone();
+                    // Сохраняем скриншоты на диск для отладки
+                    if let Err(e) = capture_full_screen(None) {
+                        eprintln!("Full screen save error: {}", e);
+                    }
 
-                        tauri::async_runtime::spawn(async move {
-                            match ocr_from_png_with_words(png_bytes).await {
-                                Ok(words) => {
-                                    // Собираем полный текст из всех слов для отправки в AI
-                                    let full_text: String = words
-                                        .iter()
-                                        .map(|w| w.text.as_str())
-                                        .collect::<Vec<&str>>()
-                                        .join(" ");
+                    let area_x = x - 100;
+                    let area_y = y - 100;
+                    if let Err(e) = capture_area(area_x, area_y, 200, 200, None) {
+                        eprintln!("Area save error: {}", e);
+                    }
 
-                                    println!("OCR: {}", full_text);
+                    // Делаем скриншот всего экрана (в память для API)
+                    let full_bytes = match capture_full_screen_bytes() {
+                        Ok(bytes) => bytes,
+                        Err(e) => {
+                            eprintln!("Full screen capture error: {}", e);
+                            continue;
+                        }
+                    };
 
-                                    if let Some(word) =
-                                        get_word_at_position(&words, OCR_CENTER_X, OCR_CENTER_Y)
-                                    {
-                                        let full_text_clone = full_text.clone();
+                    // Делаем скриншот области 200x200 вокруг курсора (в память для API)
+                    let area_bytes = match capture_area_bytes(area_x, area_y, 200, 200) {
+                        Ok(bytes) => bytes,
+                        Err(e) => {
+                            eprintln!("Area capture error: {}", e);
+                            continue;
+                        }
+                    };
 
-                                        let translation_result = match translate(&full_text_clone, &word).await {
-                                            Ok(r) => {
-                                                println!(
-                                                    "Translation response: {{\"sentence\": \"{}\", \"word\": \"{}\", \"sentence_translation\": \"{}\", \"word_translation\": \"{}\", \"synonyms\": {:?}, \"part_of_speech\": \"{}\", \"topic\": \"{}\"}}",
-                                                    full_text_clone,
-                                                    word,
-                                                    r.sentence_translation,
-                                                    r.word_translation,
-                                                    r.synonyms,
-                                                    r.part_of_speech,
-                                                    r.topic
-                                                );
-                                                r
-                                            }
-                                            Err(e) => {
-                                                eprintln!("AI error: {}", e);
-                                                ai::TranslationResult {
-                                                    sentence_translation: "ошибка".into(),
-                                                    word_translation: "ошибка".into(),
-                                                    synonyms: vec![],
-                                                    part_of_speech: "".into(),
-                                                    topic: "".into(),
-                                                }
-                                            }
-                                        };
+                    // Кодируем в base64
+                    let full_b64 = base64::Engine::encode(
+                        &base64::engine::general_purpose::STANDARD,
+                        &full_bytes,
+                    );
+                    let area_b64 = base64::Engine::encode(
+                        &base64::engine::general_purpose::STANDARD,
+                        &area_bytes,
+                    );
 
-                                        if let Some(window) = app_handle.get_webview_window("main")
-                                        {
-                                            let _ = window_manager::reposition_and_show(
-                                                &app_handle,
-                                                &window,
-                                            );
+                    // Отправляем в API
+                    match fetch_translation_from_api(&full_b64, "image/png", &area_b64, "image/png")
+                    {
+                        Ok(result) => {
+                            println!("=== Translation Result ===");
+                            println!("Sentence: {}", result.sentence_translation);
+                            println!("Word: {}", result.word_translation);
+                            println!("Synonyms: {:?}", result.synonyms);
+                            println!("POS: {}", result.part_of_speech);
+                            println!("Topic: {}", result.topic);
+                            println!("==========================");
 
-                                            //
-                                            // Отправляем полные данные перевода
-                                            //
-
-                                            let payload = serde_json::json!({
-                                                "sentence": full_text_clone,
-                                                "word": word,
-                                                "sentence_translation": translation_result.sentence_translation,
-                                                "word_translation": translation_result.word_translation,
-                                                "synonyms": translation_result.synonyms,
-                                                "part_of_speech": translation_result.part_of_speech,
-                                                "topic": translation_result.topic,
-                                            });
-                                            let json_str = payload.to_string();
-
-                                            let js = format!(
-                                                "
-                                                    window.__translationData = {};
-                                                    window.dispatchEvent(
-                                                        new Event(
-                                                            'translationDataReady'
-                                                        )
-                                                    );
-                                                    ",
-                                                json_str
-                                            );
-
-                                            let _ = window.eval(&js);
-                                        }
-                                    } else {
-                                        if let Some(window) = app_handle.get_webview_window("main")
-                                        {
-                                            let _ = window.hide();
-                                        }
-                                    }
-                                }
-
-                                Err(e) => {
-                                    eprintln!("OCR error: {}", e);
-
-                                    if let Some(window) = app_handle.get_webview_window("main") {
-                                        let _ = window.hide();
-                                    }
-                                }
-                            }
-                        });
+                            // Отправляем данные на фронтенд
+                            let payload = serde_json::to_value(&result).unwrap_or_default();
+                            let _ = app_handle.emit("translationDataReady", payload);
+                        }
+                        Err(e) => {
+                            eprintln!("API error: {}", e);
+                        }
                     }
                 }
             });
