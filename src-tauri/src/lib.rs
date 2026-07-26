@@ -51,10 +51,10 @@ pub fn run() {
 
             std::thread::spawn(move || {
                 while let Ok((x, y)) = rx.recv() {
-                    // // Показываем окно при клике
-                    // if let Some(window) = app_handle.get_webview_window("main") {
-                    //     let _ = reposition_and_show(&app_handle, &window);
-                    // }
+                    // Показываем окно при клике
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = reposition_and_show(&app_handle, &window);
+                    }
 
                     // Сохраняем скриншоты на диск для отладки
                     if let Err(e) = capture_full_screen(None) {

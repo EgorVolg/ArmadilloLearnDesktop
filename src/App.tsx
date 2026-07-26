@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 import flag from "./assets/Flag_of_Russia.png";
 
@@ -41,14 +42,20 @@ function App() {
   const [translationData, setTranslationData] = useState<TranslationData>();
 
   useEffect(() => {
-    const handler = () => {
-      const data = (window as any).__translationData;
+    let unlisten: (() => void) | undefined;
 
-      console.log(data);
-      setTranslationData(data);
+    const setup = async () => {
+      unlisten = await listen<TranslationData>("translationDataReady", (event) => {
+        console.log(event.payload);
+        setTranslationData(event.payload);
+      });
     };
-    window.addEventListener("translationDataReady", handler);
-    return () => window.removeEventListener("translationDataReady", handler);
+
+    setup();
+
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, []);
 
   if (!translationData) {
