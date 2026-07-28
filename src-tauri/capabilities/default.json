@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "opener:default",
+    "global-shortcut:default",
     "core:window:allow-set-always-on-top",
     "core:window:allow-show",
     "core:window:allow-hide",
