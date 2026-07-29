@@ -48,8 +48,4 @@ impl AppRuntime {
 
         Self { mouse, hotkey }
     }
-
-    pub fn start(&self) {
-        println!("AppRuntime started");
-    }
 }

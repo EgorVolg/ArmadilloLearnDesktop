@@ -27,8 +27,7 @@ impl HotkeyHook {
 
         let thread = thread::spawn(move || {
             unsafe {
-                let result = RegisterHotKey(None, 1, MOD_CONTROL, VK_P.0 as u32);
-                println!("RegisterHotKey result: {:?}", result);
+                let _ = RegisterHotKey(None, 1, MOD_CONTROL, VK_P.0 as u32);
             }
             let thread_id = unsafe { GetCurrentThreadId() };
 
