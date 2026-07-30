@@ -1,4 +1,4 @@
-use super::region::TextRegion;
+use crate::app_core::recognition::region::TextRegion;
 
 pub struct RecognitionContext {
     // Координата клика

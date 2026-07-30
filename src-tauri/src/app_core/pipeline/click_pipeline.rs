@@ -1,13 +1,15 @@
+use std::sync::Arc;
+
 use crate::app_core::input::event::InputEvent;
 use crate::app_core::overlay::manager::OverlayManager;
 use crate::app_core::recognition::context::RecognitionContext;
 
 pub struct ClickPipeline {
-    overlay: OverlayManager,
+    overlay: Arc<OverlayManager>,
 }
 
 impl ClickPipeline {
-    pub fn new(overlay: OverlayManager) -> Self {
+    pub fn new(overlay: Arc<OverlayManager>) -> Self {
         Self { overlay }
     }
 
