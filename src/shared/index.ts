@@ -1,2 +1,2 @@
 export * from "./types";
-export * from "./Bookmark";
+export * from "../assets/Bookmark";

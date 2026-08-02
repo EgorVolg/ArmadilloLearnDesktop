@@ -1,6 +1,5 @@
 import "./App.css";
-import { MainApp } from "./main_app";
-import { OverlayApp } from "./overlay";
+import { MainApp, OverlayApp } from "./windows";
 
 function App() {
   const hash = window.location.hash;

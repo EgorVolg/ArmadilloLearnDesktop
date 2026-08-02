@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
 import "./OverlayApp.css";
-import flag from "../assets/Flag_of_Russia.png";
-import { Bookmark, BookmarkCheck, TranslationDataType } from "../shared";
+import { Bookmark, BookmarkCheck } from "../../assets/Bookmark";
+import flag from "../../assets/Flag_of_Russia.png";
+import { TranslationDataType } from "../../shared";
 
 export const OverlayApp = () => {
   const [check, setCheck] = useState(false);
-  const [translationData, setTranslationData] = useState<TranslationDataType>();
+  const [translationData, setTranslationData] = useState<TranslationDataType>({
+    sentence: "",
+    word: "",
+    sentence_translation: "",
+    word_translation: "",
+    synonyms: [],
+    part_of_speech: "",
+    topic: "",
+  });
 
   useEffect(() => {
     const handler = () => {
@@ -17,10 +26,6 @@ export const OverlayApp = () => {
     window.addEventListener("translationDataReady", handler);
     return () => window.removeEventListener("translationDataReady", handler);
   }, []);
-
-  if (!translationData) {
-    return <div>Loading...</div>;
-  }
 
   return (
     <div className="overlay-app">
