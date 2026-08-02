@@ -10,14 +10,14 @@ impl MainWindow {
     }
 
     pub fn show(&self) {
-        if let Some(window) = self.app.get_webview_window("main") {
+        if let Some(window) = self.app.get_webview_window("main_window") {
             let _ = window.show();
             let _ = window.set_focus();
         }
     }
 
     pub fn hide(&self) {
-        if let Some(window) = self.app.get_webview_window("main") {
+        if let Some(window) = self.app.get_webview_window("main_window") {
             let _ = window.hide();
         }
     }

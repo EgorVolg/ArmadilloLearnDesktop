@@ -7,7 +7,7 @@ use tauri::AppHandle;
 
 use crate::app_core::{
     input::{event::InputEvent, hotkey::HotkeyHook, mouse::MouseHook},
-    main_window::{manager::MainWindowManager, window::MainWindow},
+    main_window::manager::MainWindow,
     overlay::manager::OverlayManager,
     pipeline::click_pipeline::ClickPipeline,
 };
@@ -17,7 +17,7 @@ pub struct AppRuntime {
     hotkey: HotkeyHook,
 
     overlay: Arc<OverlayManager>,
-    main_window: MainWindowManager,
+    main_window: MainWindow,
 }
 
 impl AppRuntime {
@@ -29,7 +29,7 @@ impl AppRuntime {
         // Создаем Overlay
         let overlay = Arc::new(OverlayManager::new(app.clone()));
         // Создаем окно
-        let main_window = MainWindowManager::new(app.clone());
+        let main_window = MainWindow::new(app.clone());
 
         // Создаем Pipeline
         let pipeline = ClickPipeline::new(overlay.clone());

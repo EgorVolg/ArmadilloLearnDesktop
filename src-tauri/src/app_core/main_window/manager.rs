@@ -1,23 +1,24 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
-use super::window::MainWindow;
-
-pub struct MainWindowManager {
-    window: MainWindow,
+pub struct MainWindow {
+    app: AppHandle,
 }
 
-impl MainWindowManager {
+impl MainWindow {
     pub fn new(app: AppHandle) -> Self {
-        Self {
-            window: MainWindow::new(app),
-        }
+        Self { app }
     }
 
     pub fn show(&self) {
-        self.window.show();
+        if let Some(window) = self.app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
     }
 
     pub fn hide(&self) {
-        self.window.hide();
+        if let Some(window) = self.app.get_webview_window("main") {
+            let _ = window.hide();
+        }
     }
 }
