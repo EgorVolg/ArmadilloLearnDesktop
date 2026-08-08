@@ -1,5 +1,3 @@
-use crate::app_core::recognition::types::{Crop, RecognitionResult};
-
 pub struct PaddleRecognizer;
 
 impl PaddleRecognizer {

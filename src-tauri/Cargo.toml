@@ -30,3 +30,4 @@ mouce = "0.3.0"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.13.4", features = ["json"] }
 dotenv = "0.15"
+

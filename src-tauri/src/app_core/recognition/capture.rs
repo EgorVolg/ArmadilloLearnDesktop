@@ -1,19 +1,41 @@
-use super::context::RecognitionContext;
+use screenshots::Screen;
 
-pub struct CaptureStage;
+use super::{
+    image::{Image, PixelFormat},
+    region::Region,
+};
 
-impl CaptureStage {
-    pub fn new() -> Self {
-        Self
-    }
+use screenshots::Screen;
+//////////////////////////!!!!!!!!!'////////////////////////
+// !!!!!!!! Используем первый экран из списка. !!!!!!!!!!!!
+//////////////////////////!!!!!!!!!'////////////////////////
+/// Захватывает указанную область экрана.
+///
+/// Эта функция отвечает только за получение изображения.
+/// Никакого OCR или анализа текста здесь нет.
+pub fn capture(region: Region) -> Result<Image, Box<dyn std::error::Error>> {
+    // Получаем список всех мониторов, подключённых к системе.
+    let screens = Screen::all()?;
 
-    pub fn run(&self, mut ctx: RecognitionContext) -> RecognitionContext {
-        println!("CaptureStage ({}, {})", ctx.cursor_x, ctx.cursor_y);
+    // Пока работаем с первым монитором.
+    //
+    // Позже здесь нужно будет определить,
+    // на каком именно мониторе находится курсор.
+    let screen = screens.first().ok_or("No screen found")?;
 
-        // TODO:
-        // Сделать снимок экрана
-        // и сохранить его в ctx.screenshot
+    // Делаем снимок указанной области экрана.
+    let screenshot = screen.capture_area(region.x, region.y, region.width, region.height)?;
 
-        ctx
-    }
+    // Библиотека screenshots возвращает изображение
+    // с пикселями в формате RGBA.
+    //
+    // Копируем буфер в наш собственный Image,
+    // чтобы остальная часть recognition
+    // не зависела от screenshots.
+    Ok(Image::new(
+        screenshot.width(),
+        screenshot.height(),
+        PixelFormat::Rgba8,
+        screenshot.buffer().to_vec(),
+    ))
 }
