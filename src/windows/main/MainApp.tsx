@@ -41,6 +41,18 @@ export const MainApp = () => {
     }
   };
 
+  const testOnnx = async () => {
+    console.log("ONNX BUTTON CLICK");
+
+    try {
+      const result = await invoke<string>("test_onnx");
+
+      console.log("ONNX RESULT:", result);
+    } catch (error) {
+      console.error("ONNX ERROR:", error);
+    }
+  };
+
   return (
     <div>
       <h1>Armadillo</h1>
@@ -72,6 +84,9 @@ export const MainApp = () => {
         }}
       >
         Test OCR
+      </button>
+      <button onClick={testOnnx}>
+        Test ONNX
       </button>
     </div>
   );

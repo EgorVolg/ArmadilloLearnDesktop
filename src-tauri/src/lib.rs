@@ -38,19 +38,10 @@ fn test_ocr() -> Result<String, String> {
     println!("=== TEST OCR COMMAND ===");
 
     // Создаём pipeline распознавания.
-    let pipeline = RecognitionPipeline::new();
-
-    // Пока используем фиксированную область
-    // только для тестирования.
-    let region = Region::new(
-        100, // X
-        100, // Y
-        800, // width
-        400 // height
-    );
+    let pipeline = RecognitionPipeline::new()?;
 
     // Запускаем полный recognition pipeline.
-    let result = pipeline.run(region)?;
+    let result = pipeline.run(500, 300)?;
 
     println!("OCR regions: {}", result.regions.len());
 
@@ -68,13 +59,24 @@ fn test_capture() -> Result<String, String> {
     Ok(format!("{}x{}", image.width, image.height))
 }
 
+use crate::app_core::recognition::onnx_test::test_model;
+
+#[tauri::command]
+fn test_onnx() -> Result<String, String> {
+    println!("=== TEST ONNX COMMAND ===");
+
+    test_model("models/det/inference.onnx")?;
+
+    Ok("ONNX model loaded successfully".to_string())
+}
+
 pub fn run() {
     dotenv::dotenv().ok();
 
     tauri::Builder
         ::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![test_crop, test_ocr, test_capture])
+        .invoke_handler(tauri::generate_handler![test_crop, test_ocr, test_capture, test_onnx])
         .setup(|app| {
             let runtime = AppRuntime::new(app.handle().clone());
 
