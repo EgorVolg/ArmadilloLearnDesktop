@@ -32,7 +32,7 @@ impl AppRuntime {
         let main_window = MainWindow::new(app.clone());
 
         // Создаем Pipeline
-        let pipeline = ClickPipeline::new(overlay.clone());
+        let pipeline = { ClickPipeline::new(overlay.clone()) };
 
         // Запускаем Mouse Hook
         let mouse = MouseHook::start(tx.clone()).expect("Mouse hook");

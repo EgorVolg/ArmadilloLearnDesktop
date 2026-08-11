@@ -1,60 +1,66 @@
+use super::image::Image;
 use super::region::Region;
 
-/// Вырезает указанную область из изображения.
-///
-/// Возвращает `None`, если область полностью находится
-/// за пределами исходного изображения.
-pub fn crop(image: &Image, region: Region) -> Option<Image> {
-    // Проверяем, что исходное изображение вообще содержит данные.
-    if image.is_empty() {
-        return None;
+/// Ошибки, которые могут возникнуть при обрезке изображения.
+#[derive(Debug)]
+pub enum CropError {
+    /// Область полностью или частично выходит
+    /// за границы исходного изображения.
+    OutOfBounds,
+    /// Передана область с нулевой шириной или высотой.
+    EmptyRegion,
+    /// Внутренняя ошибка создания нового изображения.
+    InvalidImage(String),
+}
+
+/// Обрезает изображение по заданной области.
+pub fn crop(image: &Image, region: Region) -> Result<Image, CropError> {
+    if region.width == 0 || region.height == 0 {
+        return Err(CropError::EmptyRegion);
     }
 
-    // Получаем размеры исходного изображения.
-    let image_width = image.width as i32;
-    let image_height = image.height as i32;
+    // Преобразуем координаты в i64,
+    // чтобы безопасно выполнять арифметику
+    // даже если в будущем Region будет использовать
+    // отрицательные координаты.
+    let x = region.x as i64;
+    let y = region.y as i64;
 
-    // Ограничиваем левую и верхнюю границы,
-    // чтобы они не выходили за пределы изображения.
-    let left = region.x.max(0);
-    let top = region.y.max(0);
+    let right = x + region.width as i64;
+    let bottom = y + region.height as i64;
 
-    // Аналогично ограничиваем правую и нижнюю границы.
-    let right = (region.x + region.width as i32).min(image_width);
-    let bottom = (region.y + region.height as i32).min(image_height);
+    let image_width = image.width as i64;
+    let image_height = image.height as i64;
 
-    // Если после пересечения область оказалась пустой,
-    // вырезать нечего.
-    if left >= right || top >= bottom {
-        return None;
+    // Проверяем, что весь Region находится внутри изображения.
+    if x < 0 || y < 0 || right > image_width || bottom > image_height {
+        return Err(CropError::OutOfBounds);
     }
 
-    // Вычисляем фактический размер обрезанного изображения.
-    let width = (right - left) as u32;
-    let height = (bottom - top) as u32;
+    let width = region.width as usize;
+    let height = region.height as usize;
 
-    // Определяем, сколько байт занимает один пиксель.
-    let bytes_per_pixel = match image.format {
-        PixelFormat::Rgb8 => 3,
-        PixelFormat::Rgba8 => 4,
-    };
+    // RGB = 3 байта на пиксель.
+    let bytes_per_pixel = Image::bytes_per_pixel();
 
-    // Создаём буфер для пикселей нового изображения.
-    let mut data = Vec::with_capacity((width * height * bytes_per_pixel) as usize);
+    // Размер одной строки исходного изображения.
+    let source_stride = image.width as usize * bytes_per_pixel;
 
-    // Копируем нужные строки исходного изображения
-    // в новый буфер.
-    for y in top..bottom {
-        // Вычисляем позицию начала нужного участка строки.
-        let start = ((y * image_width + left) * bytes_per_pixel as i32) as usize;
+    // Размер одной строки нового изображения.
+    let cropped_stride = width * bytes_per_pixel;
 
-        // Вычисляем конец нужного участка строки.
-        let end = start + (width * bytes_per_pixel) as usize;
+    let mut data = Vec::with_capacity(height * cropped_stride);
 
-        // Добавляем пиксели этой строки в новое изображение.
-        data.extend_from_slice(&image.data[start..end]);
+    for row in 0..height {
+        // Начало нужной строки в исходном изображении.
+        let source_start =
+            (region.y as usize + row) * source_stride + region.x as usize * bytes_per_pixel;
+
+        let source_end = source_start + cropped_stride;
+
+        // Копируем только нужную часть строки.
+        data.extend_from_slice(&image.data[source_start..source_end]);
     }
 
-    // Создаём и возвращаем новое обрезанное изображение.
-    Some(Image::new(width, height, image.format, data))
+    Image::new(region.width, region.height, data).map_err(CropError::InvalidImage)
 }
