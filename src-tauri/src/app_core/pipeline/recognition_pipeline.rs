@@ -25,6 +25,23 @@ pub struct RecognitionPipeline {
     detector: PaddleDetector,
 }
 
+/// Pipeline распознавания текста.
+///
+/// Отвечает за последовательность:
+///
+/// Capture
+///   ↓
+/// Calculate Region
+///   ↓
+/// Crop
+///   ↓
+/// Preprocess
+///   ↓
+/// Paddle Detection
+///
+/// Detector создаётся один раз при создании pipeline,
+/// поэтому ONNX-модель не загружается повторно при каждом клике.
+
 impl RecognitionPipeline {
     /// Создаёт RecognitionPipeline.
     ///
@@ -40,7 +57,7 @@ impl RecognitionPipeline {
         Ok(Self { detector })
     }
 
-    /// Распознаёт текст в указанной области экрана.
+    /// Запускает распознавание вокруг точки клика.
     ///
     /// Пока выполняется только detection.
     pub fn run(&self, click_x: i32, click_y: i32) -> Result<OcrResult, String> {
@@ -60,11 +77,17 @@ impl RecognitionPipeline {
         let region_height: u32 = 400;
 
         // Максимальные координаты левого верхнего угла,
-        // при которых область всё ещё помещается в изображение.
+        // при которых область полностью помещается
+        // внутри screenshot.
         let max_x = (screen_width - (region_width as i32)).max(0);
+
         let max_y = (screen_height - (region_height as i32)).max(0);
 
-        // Рассчитываем левый верхний угол области.
+        // Рассчитываем левый верхний угол области так,
+        // чтобы точка клика находилась примерно в центре.
+        //
+        // clamp() дополнительно защищает нас от выхода
+        // за границы экрана.
         let region_x = (click_x - (region_width as i32) / 2).clamp(0, max_x);
 
         let region_y = (click_y - (region_height as i32) / 2).clamp(0, max_y);
@@ -79,14 +102,21 @@ impl RecognitionPipeline {
             region.height
         );
 
-        // Обрезаем область.
+        // Обрезаем screenshot.
         let cropped = crop(&image, region).map_err(|error| format!("{error:?}"))?;
 
         println!("Cropped: {}x{}", cropped.width, cropped.height);
 
         // Преобразуем RGB Image в формат,
-        // который ожидает detection-модель.
+        // который ожидает PP-OCRv5 detection.
+        //
+        // Здесь также выполняется resize до размеров,
+        // кратных 32, например:
+        //
+        // 800x400 → 800x416
         let input = preprocess(&cropped);
+
+        println!("Detection input: {}x{}", input.width, input.height);
 
         println!("Input tensor created.");
 
@@ -100,6 +130,11 @@ impl RecognitionPipeline {
 
         println!("=== RECOGNITION PIPELINE END ===");
 
+        // Пока detection только проверяет успешность
+        // прохождения изображения через модель.
+        //
+        // Postprocessing output tensor и получение
+        // координат текстовых областей сделаем следующим шагом.
         Ok(OcrResult {
             regions: Vec::new(),
         })

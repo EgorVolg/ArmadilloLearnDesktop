@@ -37,15 +37,24 @@ impl PaddleDetector {
 
         println!("Loading detection model: {model_path}");
 
+        // Отключаем memory pattern, потому что detection-модель
+        // использует динамические размеры входного изображения.
+        //
+        // Иначе ONNX Runtime может попытаться повторно использовать
+        // буфер от предыдущей формы tensor.
         let session = Session::builder()
-            .map_err(|error| {
-                OcrError::Engine(format!("Failed to create ONNX session: {error}"))
-            })?
+            .map_err(|error|
+                OcrError::Recognition(format!("Failed to create ONNX session: {error:?}"))
+            )?
+            .with_memory_pattern(false)
+            .map_err(|error|
+                OcrError::Recognition(format!("Failed to configure ONNX session: {error:?}"))
+            )?
             .commit_from_file(model_path)
-            .map_err(|error| {
-                OcrError::Engine(format!("Failed to load detection model: {error}"))
-            })?;
-
+            .map_err(|error|
+                OcrError::Recognition(format!("Failed to load detection model: {error:?}"))
+            )?;
+            
         println!("Detection model loaded successfully.");
         println!("Inputs: {}", session.inputs().len());
         println!("Outputs: {}", session.outputs().len());
