@@ -7,3 +7,8 @@ export interface TranslationDataType {
   part_of_speech: string;
   topic: string;
 }
+
+export type LookupError = {
+  code: string;
+  message: string;
+};

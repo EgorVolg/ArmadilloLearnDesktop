@@ -4,48 +4,81 @@ use tauri::AppHandle;
 
 use crate::app_core::{
     input::{ event::InputEvent, hotkey::HotkeyHook, mouse::MouseHook },
+    lookup::{ pipeline::ClickPipeline, provider::{ _trait::AiProvider, GeminiProvider } },
     overlay::manager::OverlayManager,
-    pipeline::click_pipeline::ClickPipeline,
 };
 
 /// Runtime приложения.
 ///
-/// Хранит системные hooks и основной ClickPipeline.
-/// RecognitionPipeline принадлежит ClickPipeline и
-/// создаётся только один раз при запуске приложения.
-pub struct AppRuntime { 
-    _mouse: MouseHook, 
+/// Хранит системные hooks и запускает основной ClickPipeline.
+/// ClickPipeline живёт в отдельном потоке и повторно используется
+/// для обработки всех Lookup-событий.
+pub struct AppRuntime {
+    _mouse: MouseHook,
     _hotkey: HotkeyHook,
 }
 
 impl AppRuntime {
     /// Создаёт runtime приложения.
     pub fn new(app: AppHandle) -> Self {
-        // Создаём канал событий мыши и горячих клавиш.
+        // =================================================
+        // INPUT EVENTS
+        // =================================================
+
         let (tx, rx) = mpsc::channel::<InputEvent>();
 
-        // Создаём менеджер overlay.
+        // =================================================
+        // OVERLAY
+        // =================================================
+
         let overlay = Arc::new(OverlayManager::new(app.clone()));
 
-        // ClickPipeline становится владельцем
-        // RecognitionPipeline.
-        let pipeline = ClickPipeline::new(overlay.clone(), app.clone()).expect("Click pipeline");
-
-        // Запускаем hook мыши.
-        let mouse = MouseHook::start(tx.clone()).expect("Mouse hook");
-
-        // Запускаем hook горячих клавиш.
-        let hotkey = HotkeyHook::start(tx.clone()).expect("Hotkey hook");
-
-        // Запускаем отдельный поток обработки событий.
+        // =================================================
+        // AI PROVIDER
+        // =================================================
         //
-        // Pipeline живёт внутри этого потока и
-        // используется повторно для каждого клика.
+        // Сейчас намеренно используем Groq.
+        //
+        // Gemini при этом остаётся реализованным в
+        // provider/gemini.rs и может быть подключён позже.
+        //
+
+        let provider: Arc<dyn AiProvider> = Arc::new(
+            // GroqProvider::new().expect("Failed to create Groq provider")
+            GeminiProvider::new().expect("Failed to create Gemini provider")
+        );
+
+        // =================================================
+        // PIPELINE
+        // =================================================
+
+        let pipeline = ClickPipeline::new(overlay.clone(), app.clone(), provider);
+
+        // =================================================
+        // MOUSE HOOK
+        // =================================================
+
+        let mouse = MouseHook::start(tx.clone()).expect("Failed to start mouse hook");
+
+        // =================================================
+        // HOTKEY HOOK
+        // =================================================
+
+        let hotkey = HotkeyHook::start(tx.clone()).expect("Failed to start hotkey hook");
+
+        // =================================================
+        // EVENT LOOP
+        // =================================================
+
         thread::spawn(move || {
             while let Ok(event) = rx.recv() {
                 pipeline.process(event);
             }
         });
+
+        // =================================================
+        // RUNTIME
+        // =================================================
 
         Self {
             _mouse: mouse,
