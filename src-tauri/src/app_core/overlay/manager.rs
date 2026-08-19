@@ -16,8 +16,4 @@ impl OverlayManager {
     pub fn show(&self, x: i32, y: i32) {
         self.window.show(x, y);
     }
-
-    pub fn hide(&self) {
-        self.window.hide();
-    }
 }

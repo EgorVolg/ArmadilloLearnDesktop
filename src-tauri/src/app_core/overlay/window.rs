@@ -19,13 +19,9 @@ impl OverlayWindow {
     pub fn show(&self, x: i32, y: i32) {
         let window = self.window();
 
-        if self.window().is_visible().unwrap() {
-            self.hide();
-        } else {
-            let _ = window.set_position(PhysicalPosition::new(x + 20, y + 20));
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
+        let _ = window.set_position(PhysicalPosition::new(x + 20, y + 20));
+        let _ = window.show();
+        let _ = window.set_focus();
     }
 
     pub fn hide(&self) {

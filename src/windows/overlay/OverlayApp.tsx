@@ -3,9 +3,11 @@ import "./OverlayApp.css";
 import { Bookmark, BookmarkCheck } from "../../assets/Bookmark";
 import flag from "../../assets/Flag_of_Russia.png";
 import { TranslationDataType } from "../../shared";
+import { listen } from "@tauri-apps/api/event";
 
 export const OverlayApp = () => {
   const [check, setCheck] = useState(false);
+  const [error, setError] = useState<string>();
   const [translationData, setTranslationData] = useState<TranslationDataType>({
     sentence: "",
     word: "",
@@ -17,15 +19,23 @@ export const OverlayApp = () => {
   });
 
   useEffect(() => {
-    const handler = () => {
-      const data = (window as any).__translationData;
+    const unlisteners: Promise<() => void>[] = [
+      listen<TranslationDataType>("lookup-result", (event) => {
+        console.log("Translation data:", event.payload);
+        setError(undefined);
+        setTranslationData(event.payload);
+      }),
+      listen<string>("lookup-error", (event) => {
+        console.error(event.payload);
+        setError(event.payload);
+      }),
+    ];
 
-      console.log(data);
-      setTranslationData(data);
+    return () => {
+      unlisteners.forEach((unlisten) => unlisten.then((fn) => fn()));
     };
-    window.addEventListener("translationDataReady", handler);
-    return () => window.removeEventListener("translationDataReady", handler);
   }, []);
+
 
   return (
     <div className="overlay-app">
@@ -33,6 +43,16 @@ export const OverlayApp = () => {
         {check ? <Bookmark /> : <BookmarkCheck />}
       </button>
       <main className="container">
+        {error ? (
+          <article>
+            <div className="container-header">
+              <h1>Ошибка</h1>
+              <hr />
+            </div>
+            <section className="definition">{error}</section>
+          </article>
+        ) : (
+          <>
         <article>
           <div className="container-header">
             <h1>Слово</h1>
@@ -65,6 +85,8 @@ export const OverlayApp = () => {
             Synonyms:<span>&nbsp;{translationData.synonyms.join(", ")}</span>
           </section>
         </article>
+        </>
+        )}
       </main>
     </div>
   );

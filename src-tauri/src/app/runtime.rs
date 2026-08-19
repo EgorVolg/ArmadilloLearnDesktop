@@ -4,7 +4,6 @@ use tauri::AppHandle;
 
 use crate::app_core::{
     input::{ event::InputEvent, hotkey::HotkeyHook, mouse::MouseHook },
-    main_window::manager::MainWindow,
     overlay::manager::OverlayManager,
     pipeline::click_pipeline::ClickPipeline,
 };
@@ -14,18 +13,9 @@ use crate::app_core::{
 /// Хранит системные hooks и основной ClickPipeline.
 /// RecognitionPipeline принадлежит ClickPipeline и
 /// создаётся только один раз при запуске приложения.
-pub struct AppRuntime {
-    /// Hook мыши.
-    mouse: MouseHook,
-
-    /// Hook глобальных горячих клавиш.
-    hotkey: HotkeyHook,
-
-    /// Менеджер overlay-окна.
-    overlay: Arc<OverlayManager>,
-
-    /// Главное окно приложения.
-    main_window: MainWindow,
+pub struct AppRuntime { 
+    _mouse: MouseHook, 
+    _hotkey: HotkeyHook,
 }
 
 impl AppRuntime {
@@ -37,12 +27,9 @@ impl AppRuntime {
         // Создаём менеджер overlay.
         let overlay = Arc::new(OverlayManager::new(app.clone()));
 
-        // Создаём главное окно.
-        let main_window = MainWindow::new(app.clone());
-
         // ClickPipeline становится владельцем
         // RecognitionPipeline.
-        let pipeline = ClickPipeline::new(overlay.clone()).expect("Click pipeline");
+        let pipeline = ClickPipeline::new(overlay.clone(), app.clone()).expect("Click pipeline");
 
         // Запускаем hook мыши.
         let mouse = MouseHook::start(tx.clone()).expect("Mouse hook");
@@ -61,10 +48,8 @@ impl AppRuntime {
         });
 
         Self {
-            mouse,
-            hotkey,
-            overlay,
-            main_window,
+            _mouse: mouse,
+            _hotkey: hotkey,
         }
     }
 }

@@ -4,7 +4,8 @@ use std::time::{ Duration, SystemTime, UNIX_EPOCH };
 
 use base64::{ engine::general_purpose, Engine as _ };
 use reqwest::blocking::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter};
 
 use screenshots::Screen;
 
@@ -25,7 +26,7 @@ const CROP_SCALE: u32 = 2;
 // LOOKUP RESULT
 // =========================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LookupResult {
     pub sentence: String,
     pub word: String,
@@ -60,12 +61,13 @@ struct GroqMessage {
 // =========================================================
 
 pub struct ClickPipeline {
+    app: AppHandle,
     overlay: Arc<OverlayManager>,
     client: Client,
 }
 
 impl ClickPipeline {
-    pub fn new(overlay: Arc<OverlayManager>) -> Result<Self, String> {
+    pub fn new(overlay: Arc<OverlayManager>, app: AppHandle) -> Result<Self, String> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(60))
@@ -73,6 +75,7 @@ impl ClickPipeline {
             .map_err(|error| { format!("Failed to create HTTP client: {error}") })?;
 
         Ok(Self {
+            app,
             overlay,
             client,
         })
@@ -165,11 +168,13 @@ impl ClickPipeline {
 
                         println!("=== END LOOKUP RESULT ===");
 
+                        let _ = self.app.emit("lookup-result", result);
                         self.overlay.show(x, y);
                     }
 
                     Err(error) => {
                         eprintln!("Lookup failed: {error}");
+                        let _ = self.app.emit("lookup-error", error);
                     }
                 }
             }
