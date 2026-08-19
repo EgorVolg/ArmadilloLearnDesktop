@@ -6,7 +6,7 @@ use crate::app_core::{
     input::{ event::InputEvent, hotkey::HotkeyHook, mouse::MouseHook },
     main_window::manager::MainWindow,
     overlay::manager::OverlayManager,
-    pipeline::{ click_pipeline::ClickPipeline, recognition_pipeline::RecognitionPipeline },
+    pipeline::click_pipeline::ClickPipeline,
 };
 
 /// Runtime приложения.
@@ -26,8 +26,6 @@ pub struct AppRuntime {
 
     /// Главное окно приложения.
     main_window: MainWindow,
-
-     
 }
 
 impl AppRuntime {
@@ -42,16 +40,9 @@ impl AppRuntime {
         // Создаём главное окно.
         let main_window = MainWindow::new(app.clone());
 
-        // Создаём RecognitionPipeline один раз.
-        //
-        // Здесь загружается ONNX detection model.
-        let recognition = RecognitionPipeline::new().expect(
-            "Failed to initialize RecognitionPipeline"
-        );
-
         // ClickPipeline становится владельцем
         // RecognitionPipeline.
-        let pipeline = ClickPipeline::new(overlay.clone(), recognition);
+        let pipeline = ClickPipeline::new(overlay.clone()).expect("Click pipeline");
 
         // Запускаем hook мыши.
         let mouse = MouseHook::start(tx.clone()).expect("Mouse hook");

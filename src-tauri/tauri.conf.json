@@ -5,7 +5,7 @@
   "identifier": "com.volge.armadillo-learn-desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420/#/main",
+    "devUrl": "http://localhost:1420/#/overlay",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
