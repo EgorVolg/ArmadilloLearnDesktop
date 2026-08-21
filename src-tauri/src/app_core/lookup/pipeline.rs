@@ -1,4 +1,8 @@
-use std::sync::Arc;
+use std::{
+    path::{ Path, PathBuf },
+    sync::Arc,
+    time::Instant,
+};
 
 use tauri::{ AppHandle, Emitter };
 
@@ -11,16 +15,17 @@ use crate::app_core::{
         prompt::LOOKUP_SYSTEM_PROMPT,
         provider::_trait::AiProvider,
         screenshot::capture_screen,
+        time::now_ms,
     },
     overlay::manager::OverlayManager,
 };
 
 // Размер области вокруг точки, которую отправляем vision-модели.
-const CROP_WIDTH: u32 = 800;
-const CROP_HEIGHT: u32 = 600;
+const CROP_WIDTH: u32 = 600;
+const CROP_HEIGHT: u32 = 300;
 
 // Увеличиваем crop перед отправкой.
-const CROP_SCALE: u32 = 2;
+const CROP_SCALE: u32 = 1;
 
 // =========================================================
 // PIPELINE
@@ -30,6 +35,9 @@ pub struct ClickPipeline {
     app: AppHandle,
     overlay: Arc<OverlayManager>,
     provider: Arc<dyn AiProvider>,
+    // Флаг «окно-оверлей сейчас показано». Точкой входа владеет
+    // единственный поток-обработчик событий, поэтому поле не шарится между потоками.
+    visible: bool,
 }
 
 impl ClickPipeline {
@@ -46,6 +54,7 @@ impl ClickPipeline {
             app,
             overlay,
             provider,
+            visible: false,
         }
     }
 
@@ -53,13 +62,21 @@ impl ClickPipeline {
     // PROCESS INPUT EVENT
     // =====================================================
 
-    pub fn process(&self, event: InputEvent) {
+    pub fn process(&mut self, event: InputEvent) {
         match event {
             InputEvent::Lookup { x, y } => {
                 println!("ClickPipeline: Lookup at ({x}, {y})");
 
-                match self.lookup(x, y) {
-                    Ok(result) => {
+                // Если окно-оверлей уже открыто - повторный клик закрывает
+                // его сразу, без повторного распознавания слова.
+                if self.visible {
+                    println!("Overlay is open, closing it immediately");
+
+                    self.overlay.hide();
+                    self.visible = false;
+                } else {
+                    match self.lookup(x, y) {
+                        Ok(result) => {
                         println!("=== LOOKUP RESULT ===");
                         println!("sentence: {}", result.sentence);
                         println!("word: {}", result.word);
@@ -73,6 +90,7 @@ impl ClickPipeline {
                         let _ = self.app.emit("lookup-result", result);
 
                         self.overlay.show(x, y);
+                        self.visible = true;
                     }
 
                     Err(error) => {
@@ -89,6 +107,7 @@ impl ClickPipeline {
             }
         }
     }
+}
 
     // =====================================================
     // LOOKUP
@@ -145,15 +164,56 @@ impl ClickPipeline {
 
         println!("PNG size: {} bytes", png.len());
 
+        if let Some(path) = self.save_debug_screenshot(&png) {
+            println!("API screenshot saved to: {}", path.display());
+        }
+
         // -------------------------------------------------
         // AI PROVIDER
         // -------------------------------------------------
 
-        println!("Sending screenshot to AI provider...");
+        let sent_at = now_ms();
+
+        println!("Sending screenshot to AI provider... (sent at {sent_at} ms)");
+
+        let request_started = Instant::now();
+
         let result = self.provider.lookup(&png, LOOKUP_SYSTEM_PROMPT)?;
+
+        let received_at = now_ms();
+
+        println!(
+            "AI provider responded: received at {received_at} ms, round-trip took {} ms",
+            request_started.elapsed().as_millis()
+        );
 
         println!("=== LOOKUP SUCCESS ===");
 
         Ok(result)
+    }
+
+    // =====================================================
+    // DEBUG: сохраняем скриншот, который ушёл в API,
+    // чтобы можно было визуально проверить маркер и кадр.
+    // Папка лежит в корне проекта: <корень проекта>/screenshots
+    // =====================================================
+
+    fn save_debug_screenshot(&self, png: &[u8]) -> Option<PathBuf> {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+
+        let project_root = manifest_dir
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let dir = project_root.join("screenshots");
+
+        std::fs::create_dir_all(&dir).ok()?;
+
+        let path = dir.join(format!("screenshot_{}.png", now_ms()));
+
+        std::fs::write(&path, png).ok()?;
+
+        Some(path)
     }
 }

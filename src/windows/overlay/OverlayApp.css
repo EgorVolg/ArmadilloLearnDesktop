@@ -2,9 +2,9 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  width: 100vw;
-  height: 100vh;
   -webkit-app-region: drag;
+  background-color: #2d333092;
+  border-radius: 15px;
 }
 
 .bookmark {

@@ -4,7 +4,10 @@ use tauri::AppHandle;
 
 use crate::app_core::{
     input::{ event::InputEvent, hotkey::HotkeyHook, mouse::MouseHook },
-    lookup::{ pipeline::ClickPipeline, provider::{ _trait::AiProvider, GeminiProvider } },
+    lookup::{
+        pipeline::ClickPipeline,
+        provider::{ _trait::AiProvider, GeminiProvider, GroqProvider, LocalProvider },
+    },
     overlay::manager::OverlayManager,
 };
 
@@ -45,14 +48,15 @@ impl AppRuntime {
 
         let provider: Arc<dyn AiProvider> = Arc::new(
             // GroqProvider::new().expect("Failed to create Groq provider")
-            GeminiProvider::new().expect("Failed to create Gemini provider")
+            // GeminiProvider::new().expect("Failed to create Gemini provider")
+            LocalProvider::new().expect("Failed to create Local provider")
         );
 
         // =================================================
         // PIPELINE
         // =================================================
 
-        let pipeline = ClickPipeline::new(overlay.clone(), app.clone(), provider);
+        let mut pipeline = ClickPipeline::new(overlay.clone(), app.clone(), provider);
 
         // =================================================
         // MOUSE HOOK

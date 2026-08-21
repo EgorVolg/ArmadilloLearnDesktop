@@ -4,7 +4,7 @@ use base64::{ engine::general_purpose, Engine as _ };
 use reqwest::blocking::Client;
 use serde::Deserialize;
 
-use crate::app_core::lookup::{ LookupResult, provider::_trait::AiProvider };
+use crate::app_core::lookup::{ LookupResult, provider::_trait::AiProvider, time::now_ms };
 
 const GROQ_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -163,6 +163,8 @@ impl AiProvider for GroqProvider {
 
         println!("Sending screenshot to Groq...");
 
+        let request_started = now_ms();
+
         let response = self.client
             .post(GROQ_URL)
             .bearer_auth(api_key)
@@ -177,6 +179,13 @@ impl AiProvider for GroqProvider {
         let response_text = response
             .text()
             .map_err(|error| { format!("Failed to read Groq response: {error}") })?;
+
+        let response_received = now_ms();
+
+        println!(
+            "Groq round-trip: sent at {request_started} ms, response received at {response_received} ms (took {})",
+            response_received.saturating_sub(request_started)
+        );
 
         if !status.is_success() {
             return Err(format!("Groq API returned {status}: {response_text}"));

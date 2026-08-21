@@ -5,7 +5,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::app_core::lookup::{ provider::_trait::AiProvider, types::LookupResult };
+use crate::app_core::lookup::{ provider::_trait::AiProvider, types::LookupResult, time::now_ms };
 
 const GEMINI_URL: &str = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -41,11 +41,7 @@ impl AiProvider for GeminiProvider {
 
         let encoded_image = general_purpose::STANDARD.encode(image_png);
 
-        let url = format!(
-            "{}/{model}:generateContent?key={api_key}",
-            GEMINI_URL,
-            model = GEMINI_MODEL
-        );
+        let url = format!("{}/{model}:generateContent", GEMINI_URL, model = GEMINI_MODEL);
 
         let request =
             json!({
@@ -109,9 +105,12 @@ impl AiProvider for GeminiProvider {
             }
         });
 
+        let request_started = now_ms();
+
         let response = self.client
             .post(&url)
             .header("Content-Type", "application/json")
+            .header("x-goog-api-key", &api_key)
             .json(&request)
             .send()
             .map_err(|error| { format!("Gemini request failed: {error}") })?;
@@ -123,6 +122,13 @@ impl AiProvider for GeminiProvider {
         let response_text = response
             .text()
             .map_err(|error| { format!("Failed to read Gemini response: {error}") })?;
+
+        let response_received = now_ms();
+
+        println!(
+            "Gemini round-trip: sent at {request_started} ms, response received at {response_received} ms (took {})",
+            response_received.saturating_sub(request_started)
+        );
 
         if !status.is_success() {
             return Err(format!("Gemini API returned {}: {}", status, response_text));
