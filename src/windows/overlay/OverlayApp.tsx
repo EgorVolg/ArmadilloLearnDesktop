@@ -41,7 +41,6 @@ export const OverlayApp = () => {
     };
   }, []);
 
-
   return (
     <div className="overlay-app">
       <button className="bookmark" onClick={() => setCheck(!check)}>
@@ -55,7 +54,16 @@ export const OverlayApp = () => {
               <hr />
             </div>
 
-            <section style={{ color: "red", fontSize: "20px", fontWeight: "bold", maxWidth: "500px" }} >{error.code}</section>
+            <section
+              style={{
+                color: "red",
+                fontSize: "20px",
+                fontWeight: "bold",
+                maxWidth: "500px",
+              }}
+            >
+              {error.code}
+            </section>
           </article>
         ) : (
           <>
@@ -67,20 +75,21 @@ export const OverlayApp = () => {
               <section className="word">{translationData.word}</section>
             </article>
 
-            <article>
+            <article className="translation-article">
               <section className="container-header">
                 <h1>Перевод</h1>
                 <hr />
               </section>
 
-              <section className="tags">
-                <span>{translationData.part_of_speech}</span>
-                <span>{translationData.topic}</span>
-              </section>
-
               <section className="word">
                 <img src={flag} alt="russian language" />
                 {translationData.word_translation}
+              </section>
+            </article>
+            <article className="translation-content">
+              <section className="tags">
+                <span>{translationData.part_of_speech}</span>
+                <span>{translationData.topic}</span>
               </section>
 
               <section className="definition">
@@ -88,7 +97,8 @@ export const OverlayApp = () => {
               </section>
 
               <section className="synonyms">
-                Synonyms:<span>&nbsp;{translationData.synonyms.join(", ")}</span>
+                Synonyms:
+                <span>&nbsp;{translationData.synonyms.join(", ")}</span>
               </section>
             </article>
           </>

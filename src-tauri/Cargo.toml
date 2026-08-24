@@ -5,7 +5,6 @@ description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
 
-
 [lib]
 name = "armadillo_learn_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

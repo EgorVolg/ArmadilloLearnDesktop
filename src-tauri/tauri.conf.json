@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "armadillo-learn-desktop",
-        "width": 500,
-        "height": 300,
+        "width": 520,
+        "height": 320,
         "visible": false,
         "transparent": true,
         "resizable": false,
@@ -22,10 +22,8 @@
         "decorations": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "shadow": false,
         "windowEffects": {
-          "effects": ["acrylic"],
-          "state": "active"
+          "effects": ["acrylic"]
         }
       }
     ],
