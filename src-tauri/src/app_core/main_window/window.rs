@@ -1,23 +1,23 @@
 use tauri::{AppHandle, Manager};
 
-pub struct MainWindow {
+pub struct OverlayWindow {
     app: AppHandle,
 }
 
-impl MainWindow {
+impl OverlayWindow {
     pub fn new(app: AppHandle) -> Self {
         Self { app }
     }
 
     pub fn show(&self) {
-        if let Some(window) = self.app.get_webview_window("main_window") {
+        if let Some(window) = self.app.get_webview_window("OverlayWindow") {
             let _ = window.show();
             let _ = window.set_focus();
         }
     }
 
     pub fn hide(&self) {
-        if let Some(window) = self.app.get_webview_window("main_window") {
+        if let Some(window) = self.app.get_webview_window("OverlayWindow") {
             let _ = window.hide();
         }
     }

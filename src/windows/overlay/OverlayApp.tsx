@@ -4,6 +4,7 @@ import { Bookmark, BookmarkCheck } from "../../assets/Bookmark";
 import flag from "../../assets/Flag_of_Russia.png";
 import { LookupError, TranslationDataType } from "../../shared";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 
 export const OverlayApp = () => {
   const [check, setCheck] = useState(false);
@@ -17,6 +18,10 @@ export const OverlayApp = () => {
     part_of_speech: "",
     topic: "",
   });
+
+  async function openMainWindow() {
+    await invoke("open_main_window");
+  }
 
   const renderSentenceWithHighlight = () => {
     const target = translationData.word.toLowerCase();
@@ -39,7 +44,7 @@ export const OverlayApp = () => {
                 padding: "0 2px",
                 borderRadius: "4px",
                 fontWeight: "bold",
-                fontSize: "18px"
+                fontSize: "18px",
               }}
             >
               {core}
@@ -102,6 +107,7 @@ export const OverlayApp = () => {
           </article>
         ) : (
           <>
+            <button onClick={openMainWindow}>+</button>
             <article>
               <div className="container-header">
                 <h1>Слово</h1>

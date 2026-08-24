@@ -12,8 +12,8 @@ impl OverlayWindow {
 
     fn window(&self) -> WebviewWindow {
         self.app
-            .get_webview_window("main")
-            .expect("Main window not found")
+            .get_webview_window("overlay")
+            .expect("Overlay window not found")
     }
 
     pub fn show(&self, x: i32, y: i32) {

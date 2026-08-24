@@ -1,7 +1,12 @@
+import { useEffect } from "react";
 import "./App.css";
 import { MainApp, OverlayApp } from "./windows";
+import { enable } from "@tauri-apps/plugin-autostart";
 
 function App() {
+  useEffect(() => {
+    enable().catch(console.error);
+  }, []);
   const hash = window.location.hash;
 
   switch (hash) {
@@ -12,7 +17,7 @@ function App() {
       return <MainApp />;
 
     default:
-      return <OverlayApp />;
+      return <MainApp />;
   }
 }
 
