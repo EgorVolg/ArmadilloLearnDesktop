@@ -86,6 +86,7 @@ export const OverlayApp = () => {
                 {translationData.word_translation}
               </section>
             </article>
+
             <article className="translation-content">
               <section className="tags">
                 <span>{translationData.part_of_speech}</span>
@@ -95,11 +96,12 @@ export const OverlayApp = () => {
               <section className="definition">
                 {translationData.sentence_translation}
               </section>
-
-              <section className="synonyms">
-                Synonyms:
-                <span>&nbsp;{translationData.synonyms.join(", ")}</span>
-              </section>
+              {translationData.synonyms.length > 0 && (
+                <section className="synonyms">
+                  Synonyms:
+                  <span>&nbsp;{translationData.synonyms.join(", ")}</span>
+                </section>
+              )}
             </article>
           </>
         )}
