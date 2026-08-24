@@ -18,6 +18,41 @@ export const OverlayApp = () => {
     topic: "",
   });
 
+  const renderSentenceWithHighlight = () => {
+    const target = translationData.word.toLowerCase();
+    let highlighted = false;
+
+    return translationData.sentence.split(/(\s+)/).map((part, index) => {
+      const core = part.match(/[\p{L}\p{N}]+/u)?.[0] ?? "";
+
+      if (!highlighted && core !== "" && core.toLowerCase() === target) {
+        highlighted = true;
+        const coreIndex = part.indexOf(core);
+
+        return (
+          <span key={index}>
+            {part.slice(0, coreIndex)}
+            <span
+              style={{
+                backgroundColor: "rgb(255, 221, 0)",
+                color: "black",
+                padding: "0 2px",
+                borderRadius: "4px",
+                fontWeight: "bold",
+                fontSize: "18px"
+              }}
+            >
+              {core}
+            </span>
+            {part.slice(coreIndex + core.length)}
+          </span>
+        );
+      }
+
+      return <span key={index}>{part}</span>;
+    });
+  };
+
   useEffect(() => {
     const unlisteners: Promise<() => void>[] = [
       listen<TranslationDataType>("lookup-result", (event) => {
@@ -72,7 +107,9 @@ export const OverlayApp = () => {
                 <h1>Слово</h1>
                 <hr />
               </div>
-              <section className="word">{translationData.word}</section>
+              <section className="word">
+                {renderSentenceWithHighlight()}
+              </section>
             </article>
 
             <article className="translation-article">
