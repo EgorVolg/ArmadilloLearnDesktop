@@ -1,21 +1,21 @@
 use std::{
-    path::{ Path, PathBuf },
+    path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
 };
 
-use tauri::{ AppHandle, Emitter };
+use tauri::{AppHandle, Emitter};
 
 use crate::app_core::{
     input::event::InputEvent,
     lookup::{
-        LookupError,
-        image::{ crop_around_point, encode_png, upscale_nearest },
+        image::{crop_around_point, encode_png, upscale_nearest},
         marker::draw_click_marker,
         prompt::LOOKUP_SYSTEM_PROMPT,
         provider::_trait::AiProvider,
         screenshot::capture_screen,
         time::now_ms,
+        LookupError,
     },
     overlay::manager::OverlayManager,
 };
@@ -48,7 +48,7 @@ impl ClickPipeline {
     pub fn new(
         overlay: Arc<OverlayManager>,
         app: AppHandle,
-        provider: Arc<dyn AiProvider>
+        provider: Arc<dyn AiProvider>,
     ) -> Self {
         Self {
             app,
@@ -77,37 +77,37 @@ impl ClickPipeline {
                 } else {
                     match self.lookup(x, y) {
                         Ok(result) => {
-                        println!("=== LOOKUP RESULT ===");
-                        println!("sentence: {}", result.sentence);
-                        println!("word: {}", result.word);
-                        println!("sentence_translation: {}", result.sentence_translation);
-                        println!("word_translation: {}", result.word_translation);
-                        println!("synonyms: {:?}", result.synonyms);
-                        println!("part_of_speech: {}", result.part_of_speech);
-                        println!("topic: {}", result.topic);
-                        println!("=== END LOOKUP RESULT ===");
+                            println!("=== LOOKUP RESULT ===");
+                            println!("sentence: {}", result.sentence);
+                            println!("word: {}", result.word);
+                            println!("sentence_translation: {}", result.sentence_translation);
+                            println!("word_translation: {}", result.word_translation);
+                            println!("synonyms: {:?}", result.synonyms);
+                            println!("part_of_speech: {}", result.part_of_speech);
+                            println!("topic: {}", result.topic);
+                            println!("=== END LOOKUP RESULT ===");
 
-                        let _ = self.app.emit("lookup-result", result);
+                            let _ = self.app.emit("lookup-result", result);
 
-                        self.overlay.show(x, y);
-                        self.visible = true;
-                    }
+                            self.overlay.show(x, y);
+                            self.visible = true;
+                        }
 
-                    Err(error) => {
-                        eprintln!("Lookup failed: {error}");
+                        Err(error) => {
+                            eprintln!("Lookup failed: {error}");
 
-                        let error = LookupError {
-                            code: "lookup_failed".to_string(),
-                            message: error,
-                        };
+                            let error = LookupError {
+                                code: "lookup_failed".to_string(),
+                                message: error,
+                            };
 
-                        let _ = self.app.emit("lookup-error", error);
+                            let _ = self.app.emit("lookup-error", error);
+                        }
                     }
                 }
             }
         }
     }
-}
 
     // =====================================================
     // LOOKUP
@@ -116,35 +116,54 @@ impl ClickPipeline {
     fn lookup(
         &self,
         click_x: i32,
-        click_y: i32
+        click_y: i32,
     ) -> Result<crate::app_core::lookup::types::LookupResult, String> {
         println!("=== LOOKUP START ===");
+        println!("Global click: ({click_x}, {click_y})");
 
         // -------------------------------------------------
         // SCREENSHOT
         // -------------------------------------------------
 
-        println!("Capturing full screen...");
+        println!("Capturing monitor under click...");
 
-        let full_image = capture_screen()?;
+        let captured = capture_screen(click_x, click_y)?;
 
-        println!("Captured: {}x{}", full_image.width, full_image.height);
+        println!(
+            "Captured monitor: {}x{}, origin=({}, {})",
+            captured.image.width, captured.image.height, captured.origin_x, captured.origin_y
+        );
+
+        // -------------------------------------------------
+        // CONVERT GLOBAL -> LOCAL
+        // -------------------------------------------------
+
+        let local_x = click_x - captured.origin_x;
+        let local_y = click_y - captured.origin_y;
+
+        println!(
+            "Click coordinates: global=({}, {}), local=({}, {})",
+            click_x, click_y, local_x, local_y
+        );
 
         // -------------------------------------------------
         // CLICK MARKER
         // -------------------------------------------------
 
-        let mut marked_image = full_image;
+        let mut marked_image = captured.image;
 
-        draw_click_marker(&mut marked_image, click_x, click_y);
+        draw_click_marker(&mut marked_image, local_x, local_y);
 
-        println!("Click marker drawn at ({}, {})", click_x, click_y);
+        println!(
+            "Click marker drawn at local coordinates ({}, {})",
+            local_x, local_y
+        );
 
         // -------------------------------------------------
         // CROP AROUND CLICK
         // -------------------------------------------------
 
-        let cropped = crop_around_point(&marked_image, click_x, click_y, CROP_WIDTH, CROP_HEIGHT);
+        let cropped = crop_around_point(&marked_image, local_x, local_y, CROP_WIDTH, CROP_HEIGHT);
 
         println!("Vision crop: {}x{}", cropped.width, cropped.height);
 
@@ -154,7 +173,10 @@ impl ClickPipeline {
 
         let vision_image = upscale_nearest(&cropped, CROP_SCALE);
 
-        println!("Vision image: {}x{}", vision_image.width, vision_image.height);
+        println!(
+            "Vision image: {}x{}",
+            vision_image.width, vision_image.height
+        );
 
         // -------------------------------------------------
         // PNG

@@ -2,18 +2,33 @@ use screenshots::Screen;
 
 use super::image::Image;
 
-pub fn capture_screen() -> Result<Image, String> {
-    println!("Getting screens...");
+pub struct CapturedScreen {
+    pub image: Image,
 
-    let screens = Screen::all().map_err(|error| { format!("Failed to get screens: {error}") })?;
+    /// Левая верхняя точка монитора
+    /// в глобальной системе координат desktop.
+    pub origin_x: i32,
+    pub origin_y: i32,
+}
 
-    let screen = screens.first().ok_or_else(|| "No screens found".to_string())?;
+pub fn capture_screen(click_x: i32, click_y: i32) -> Result<CapturedScreen, String> {
+    println!("Getting screen for click at ({click_x}, {click_y})...");
 
-    println!("Capturing first screen...");
+    let screen = Screen::from_point(click_x, click_y)
+        .map_err(|error| format!("Failed to find screen at ({click_x}, {click_y}): {error}"))?;
+
+    let display = screen.display_info;
+
+    println!(
+        "Selected screen: id={}, position=({}, {}), size={}x{}",
+        display.id, display.x, display.y, display.width, display.height
+    );
+
+    println!("Capturing selected screen...");
 
     let screenshot = screen
         .capture()
-        .map_err(|error| { format!("Failed to capture screen: {error}") })?;
+        .map_err(|error| format!("Failed to capture screen: {error}"))?;
 
     let width = screenshot.width();
     let height = screenshot.height();
@@ -25,7 +40,11 @@ pub fn capture_screen() -> Result<Image, String> {
     let expected_len = (width as usize) * (height as usize) * 4;
 
     if pixels.len() != expected_len {
-        return Err(format!("Invalid frame size: expected {}, got {}", expected_len, pixels.len()));
+        return Err(format!(
+            "Invalid frame size: expected {}, got {}",
+            expected_len,
+            pixels.len()
+        ));
     }
 
     let mut rgb = Vec::with_capacity((width as usize) * (height as usize) * 3);
@@ -40,9 +59,14 @@ pub fn capture_screen() -> Result<Image, String> {
         rgb.push(b);
     }
 
-    Ok(Image {
-        width,
-        height,
-        data: rgb,
+    Ok(CapturedScreen {
+        image: Image {
+            width,
+            height,
+            data: rgb,
+        },
+
+        origin_x: display.x,
+        origin_y: display.y,
     })
 }
