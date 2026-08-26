@@ -16,14 +16,10 @@ impl OverlayWindow {
             .expect("Overlay window not found")
     }
 
-    pub fn show(&self, x: i32, y: i32, highlight: Option<(f32, f32, f32, f32)>) {
+    pub fn show(&self, x: i32, y: i32) {
         let window = self.window();
 
         let _ = window.set_position(PhysicalPosition::new(x + 20, y + 20));
-
-        if let Some(bbox) = highlight {
-            let _ = window.emit("ocr-highlight", bbox);
-        }
 
         let _ = window.show();
         let _ = window.set_focus();

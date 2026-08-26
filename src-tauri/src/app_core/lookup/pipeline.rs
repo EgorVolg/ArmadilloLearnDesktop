@@ -4,20 +4,22 @@ use std::{
     time::Instant,
 };
 
-use crate::app_core::{lookup::provider::_trait::AiProvider, ocr::engine::OcrEngine};
+use crate::app_core::{
+    lookup::{
+        image::{crop_around_point, encode_png, upscale_nearest},
+        marker::draw_click_marker,
+        prompt::LOOKUP_SYSTEM_PROMPT,
+        provider::_trait::AiProvider,
+        time::now_ms,
+        LookupError,
+    },
+    ocr::engine::OcrEngine,
+};
 
 use tauri::{AppHandle, Emitter};
 
 use crate::app_core::{
-    input::event::InputEvent,
-    lookup::{
-        image::{crop_around_point, encode_png, upscale_nearest},
-        prompt::LOOKUP_SYSTEM_PROMPT,
-        time::now_ms,
-        LookupError,
-    },
-    overlay::manager::OverlayManager,
-    screen::capture::capture_screen,
+    input::event::InputEvent, overlay::manager::OverlayManager, screen::capture::capture_screen,
 };
 
 // Размер области вокруг точки, которую отправляем vision-модели.
@@ -72,8 +74,8 @@ impl ClickPipeline {
 
                 let click_at = Instant::now();
 
-                // Если окно-оверлей уже открыто — повторный клик закрывает
-                // его сразу, без повторного распознавания слова.
+                // Если окно-оверлей уже открыто —
+                // повторный клик закрывает его сразу.
                 if self.visible {
                     println!("Overlay is open, closing it immediately");
 
@@ -81,7 +83,7 @@ impl ClickPipeline {
                     self.visible = false;
                 } else {
                     match self.lookup(x, y, click_at) {
-                        Ok((result, clicked_ocr_bbox)) => {
+                        Ok(result) => {
                             println!("=== LOOKUP RESULT ===");
                             println!("sentence: {}", result.sentence);
                             println!("word: {}", result.word);
@@ -93,9 +95,7 @@ impl ClickPipeline {
                             println!("=== END LOOKUP RESULT ===");
 
                             let _ = self.app.emit("lookup-result", result);
-
-                            self.overlay.show(x, y, clicked_ocr_bbox);
-
+                            self.overlay.show(x, y);
                             self.visible = true;
                         }
 
@@ -124,13 +124,7 @@ impl ClickPipeline {
         click_x: i32,
         click_y: i32,
         click_at: Instant,
-    ) -> Result<
-        (
-            crate::app_core::lookup::types::LookupResult,
-            Option<(f32, f32, f32, f32)>,
-        ),
-        String,
-    > {
+    ) -> Result<crate::app_core::lookup::types::LookupResult, String> {
         println!("=== LOOKUP START ===");
         println!("Global click: ({click_x}, {click_y})");
 
@@ -140,7 +134,7 @@ impl ClickPipeline {
 
         println!("Capturing monitor under click...");
 
-        let captured = capture_screen(click_x, click_y)?;
+        let mut captured = capture_screen(click_x, click_y)?;
 
         println!(
             "Captured monitor: {}x{}, origin=({}, {})",
@@ -172,7 +166,7 @@ impl ClickPipeline {
         println!("OCR detected {} text regions", ocr_boxes.len());
 
         // -------------------------------------------------
-        // DEBUG: PRINT ALL OCR BOXES
+        // FIND OCR BOX UNDER CLICK
         // -------------------------------------------------
 
         let local_x = captured.click_x as f32;
@@ -229,6 +223,25 @@ impl ClickPipeline {
         println!("=== END OCR CLICK TEST ===");
 
         // -------------------------------------------------
+        // MARK CLICK ON SCREENSHOT
+        // -------------------------------------------------
+        //
+        // ВАЖНО:
+        // OCR уже выполнен по чистому screenshot.
+        // Теперь добавляем визуальную метку.
+        //
+        // Именно эта версия изображения пойдёт дальше
+        // в crop -> PNG -> Vision AI.
+        // -------------------------------------------------
+
+        draw_click_marker(&mut captured.image, captured.click_x, captured.click_y);
+
+        println!(
+            "Click marker drawn at screenshot coordinates: ({}, {})",
+            captured.click_x, captured.click_y
+        );
+
+        // -------------------------------------------------
         // CROP AROUND CLICK
         // -------------------------------------------------
 
@@ -271,7 +284,10 @@ impl ClickPipeline {
 
         let sent_at = now_ms();
 
-        println!("Sending screenshot to AI provider... (sent at {sent_at} ms)");
+        println!(
+            "Sending screenshot to AI provider... \
+             (sent at {sent_at} ms)"
+        );
 
         let request_started = Instant::now();
 
@@ -292,7 +308,7 @@ impl ClickPipeline {
 
         println!("=== LOOKUP SUCCESS ===");
 
-        Ok((result, clicked_ocr_bbox))
+        Ok(result)
     }
 
     // =====================================================

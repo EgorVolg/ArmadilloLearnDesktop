@@ -13,8 +13,8 @@ impl OverlayManager {
         }
     }
 
-    pub fn show(&self, x: i32, y: i32, highlight: Option<(f32, f32, f32, f32)>) {
-        self.window.show(x, y, highlight);
+    pub fn show(&self, x: i32, y: i32) {
+        self.window.show(x, y);
     }
 
     pub fn hide(&self) {

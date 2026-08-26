@@ -9,10 +9,6 @@ export const OverlayApp = () => {
   const [check, setCheck] = useState(false);
   const [error, setError] = useState<LookupError>();
 
-  const [ocrHighlight, setOcrHighlight] = useState<
-    [number, number, number, number] | null
-  >(null);
-
   const [translationData, setTranslationData] = useState<TranslationDataType>({
     sentence: "",
     word: "",
@@ -70,11 +66,6 @@ export const OverlayApp = () => {
         console.error("Lookup error!!!!!!:", event.payload.message);
         setError(event.payload);
       }),
-
-      listen<[number, number, number, number]>("ocr-highlight", (event) => {
-        console.log("OCR highlight:", event.payload);
-        setOcrHighlight(event.payload);
-      }),
     ];
 
     return () => {
@@ -109,18 +100,6 @@ export const OverlayApp = () => {
 
   return (
     <div className="overlay-app">
-      {ocrHighlight && (
-        <div
-          className="ocr-highlight"
-          style={{
-            left: ocrHighlight[0],
-            top: ocrHighlight[1],
-            width: ocrHighlight[2] - ocrHighlight[0],
-            height: ocrHighlight[3] - ocrHighlight[1],
-          }}
-        />
-      )}
-
       <button className="bookmark" onClick={() => setCheck(!check)}>
         {check ? <Bookmark /> : <BookmarkCheck />}
       </button>
