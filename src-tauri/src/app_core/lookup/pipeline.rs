@@ -139,30 +139,11 @@ impl ClickPipeline {
             captured.image.width, captured.image.height, captured.origin_x, captured.origin_y
         );
 
-        // -------------------------------------------------
-        // CONVERT GLOBAL -> LOCAL
-        // -------------------------------------------------
-
-        let local_x = click_x - captured.origin_x;
-        let local_y = click_y - captured.origin_y;
-
-        println!(
-            "Click coordinates: global=({}, {}), local=({}, {})",
-            click_x, click_y, local_x, local_y
-        );
-
-        // -------------------------------------------------
-        // CLICK MARKER
-        // -------------------------------------------------
-
         let mut marked_image = captured.image;
+        let local_x = captured.click_x;
+        let local_y = captured.click_y;
 
         draw_click_marker(&mut marked_image, local_x, local_y);
-
-        println!(
-            "Click marker drawn at local coordinates ({}, {})",
-            local_x, local_y
-        );
 
         // -------------------------------------------------
         // CROP AROUND CLICK
