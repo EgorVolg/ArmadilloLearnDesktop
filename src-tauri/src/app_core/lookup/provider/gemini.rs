@@ -138,6 +138,13 @@ impl AiProvider for GeminiProvider {
         println!("{response_text}");
         println!("=== END GEMINI API RESPONSE ===");
 
+        let elapsed_secs = response_received.saturating_sub(request_started) / 1000;
+        println!(
+            "Запрос выполнялся {} минут {} секунд",
+            elapsed_secs / 60,
+            elapsed_secs % 60
+        );
+
         let gemini_response: GeminiResponse = serde_json
             ::from_str(&response_text)
             .map_err(|error| {

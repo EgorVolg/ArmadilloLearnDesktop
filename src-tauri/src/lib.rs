@@ -52,9 +52,6 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| {
-            // Логируем события только для отладки.
-            println!("TAURI EVENT: {:?}", event);
-
             // Закрытие main через стандартный крестик.
             if let tauri::RunEvent::WindowEvent {
                 label,

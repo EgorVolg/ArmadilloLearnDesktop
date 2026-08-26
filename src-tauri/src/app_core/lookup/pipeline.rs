@@ -21,8 +21,8 @@ use crate::app_core::{
 };
 
 // Размер области вокруг точки, которую отправляем vision-модели.
-const CROP_WIDTH: u32 = 600;
-const CROP_HEIGHT: u32 = 300;
+const CROP_WIDTH: u32 = 350;
+const CROP_HEIGHT: u32 = 200;
 
 // Увеличиваем crop перед отправкой.
 const CROP_SCALE: u32 = 1;
@@ -67,6 +67,10 @@ impl ClickPipeline {
             InputEvent::Lookup { x, y } => {
                 println!("ClickPipeline: Lookup at ({x}, {y})");
 
+                // Засекаем момент клика, чтобы потом залогировать,
+                // сколько секунд прошло от клика до выполнения запроса.
+                let click_at = Instant::now();
+
                 // Если окно-оверлей уже открыто - повторный клик закрывает
                 // его сразу, без повторного распознавания слова.
                 if self.visible {
@@ -75,7 +79,7 @@ impl ClickPipeline {
                     self.overlay.hide();
                     self.visible = false;
                 } else {
-                    match self.lookup(x, y) {
+                    match self.lookup(x, y, click_at) {
                         Ok(result) => {
                             println!("=== LOOKUP RESULT ===");
                             println!("sentence: {}", result.sentence);
@@ -117,6 +121,7 @@ impl ClickPipeline {
         &self,
         click_x: i32,
         click_y: i32,
+        click_at: Instant,
     ) -> Result<crate::app_core::lookup::types::LookupResult, String> {
         println!("=== LOOKUP START ===");
         println!("Global click: ({click_x}, {click_y})");
@@ -207,6 +212,11 @@ impl ClickPipeline {
         println!(
             "AI provider responded: received at {received_at} ms, round-trip took {} ms",
             request_started.elapsed().as_millis()
+        );
+
+        println!(
+            ">>> Time from click to AI response: {:.2} s",
+            click_at.elapsed().as_secs_f64()
         );
 
         println!("=== LOOKUP SUCCESS ===");

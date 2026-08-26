@@ -4,7 +4,7 @@ pub fn draw_click_marker(image: &mut Image, x: i32, y: i32) {
     // Горизонтальная полоска-подчёркивание. Её центр совпадает с точкой клика,
     // а текст для перевода модель ищет сразу под центром полоски.
     const HALF_WIDTH: i32 = 20;
-    const THICKNESS: i32 = 30;
+    const THICKNESS: i32 = 10;
 
     const YELLOW_R: f32 = 255.0;
     const YELLOW_G: f32 = 220.0;
