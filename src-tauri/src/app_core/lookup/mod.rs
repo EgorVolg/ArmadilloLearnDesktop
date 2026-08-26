@@ -1,8 +1,7 @@
 pub mod image;
 pub mod marker;
 pub mod pipeline;
-pub mod prompt;
-pub mod screenshot;
+pub mod prompt; 
 pub mod time;
 pub mod types;
 

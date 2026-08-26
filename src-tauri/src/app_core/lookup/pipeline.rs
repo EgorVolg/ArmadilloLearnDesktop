@@ -13,11 +13,11 @@ use crate::app_core::{
         marker::draw_click_marker,
         prompt::LOOKUP_SYSTEM_PROMPT,
         provider::_trait::AiProvider,
-        screenshot::capture_screen,
         time::now_ms,
         LookupError,
     },
     overlay::manager::OverlayManager,
+    screen::capture::capture_screen,
 };
 
 // Размер области вокруг точки, которую отправляем vision-модели.

@@ -1,6 +1,5 @@
+use crate::app_core::lookup::image::Image;
 use screenshots::Screen;
-
-use super::image::Image;
 
 pub struct CapturedScreen {
     pub image: Image,
@@ -9,6 +8,11 @@ pub struct CapturedScreen {
     /// в глобальной системе координат desktop.
     pub origin_x: i32,
     pub origin_y: i32,
+
+    /// Координаты клика относительно
+    /// верхнего левого угла screenshot.
+    pub click_x: i32,
+    pub click_y: i32,
 }
 
 pub fn capture_screen(click_x: i32, click_y: i32) -> Result<CapturedScreen, String> {
@@ -23,6 +27,11 @@ pub fn capture_screen(click_x: i32, click_y: i32) -> Result<CapturedScreen, Stri
         "Selected screen: id={}, position=({}, {}), size={}x{}",
         display.id, display.x, display.y, display.width, display.height
     );
+
+    let local_click_x = click_x - display.x;
+    let local_click_y = click_y - display.y;
+
+    println!("Click in screenshot coordinates: ({local_click_x}, {local_click_y})");
 
     println!("Capturing selected screen...");
 
@@ -65,8 +74,9 @@ pub fn capture_screen(click_x: i32, click_y: i32) -> Result<CapturedScreen, Stri
             height,
             data: rgb,
         },
-
         origin_x: display.x,
         origin_y: display.y,
+        click_x: local_click_x,
+        click_y: local_click_y,
     })
 }
