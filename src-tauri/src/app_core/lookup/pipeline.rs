@@ -5,33 +5,27 @@ use std::{
 };
 
 use crate::app_core::{
+    input::event::InputEvent,
     lookup::{
         image::{crop_around_point, encode_png, upscale_nearest},
-        marker::draw_ocr_highlight,
         prompt::LOOKUP_SYSTEM_PROMPT,
         provider::_trait::AiProvider,
         time::now_ms,
         LookupError,
     },
     ocr::engine::OcrEngine,
+    overlay::manager::OverlayManager,
+    screen::capture::capture_screen,
 };
 
 use tauri::{AppHandle, Emitter};
 
-use crate::app_core::{
-    input::event::InputEvent, overlay::manager::OverlayManager, screen::capture::capture_screen,
-};
-
-// Размер области вокруг точки, которую отправляем vision-модели.
+// Размер области вокруг точки, которую отправляем Vision AI.
 const CROP_WIDTH: u32 = 350;
 const CROP_HEIGHT: u32 = 200;
 
-// Увеличиваем crop перед отправкой.
+// Увеличение изображения перед отправкой.
 const CROP_SCALE: u32 = 1;
-
-// =========================================================
-// PIPELINE
-// =========================================================
 
 pub struct ClickPipeline {
     app: AppHandle,
@@ -39,15 +33,11 @@ pub struct ClickPipeline {
     provider: Arc<dyn AiProvider>,
     ocr: Arc<Mutex<OcrEngine>>,
 
-    // Флаг «окно-оверлей сейчас показано».
+    // Открыт ли сейчас overlay.
     visible: bool,
 }
 
 impl ClickPipeline {
-    // =====================================================
-    // NEW
-    // =====================================================
-
     pub fn new(
         overlay: Arc<OverlayManager>,
         app: AppHandle,
@@ -63,48 +53,40 @@ impl ClickPipeline {
         }
     }
 
-    // =====================================================
-    // PROCESS INPUT EVENT
-    // =====================================================
-
     pub fn process(&mut self, event: InputEvent) {
         match event {
             InputEvent::Lookup { x, y } => {
                 let click_at = Instant::now();
 
-                // Если окно-оверлей уже открыт —
-                // повторный клик закрывает его сразу.
+                // Повторный клик закрывает overlay.
                 if self.visible {
                     self.overlay.hide();
                     self.visible = false;
-                } else {
-                    match self.lookup(x, y, click_at) {
-                        Ok(result) => {
-                            let _ = self.app.emit("lookup-result", result);
+                    return;
+                }
 
-                            self.overlay.show(x, y);
-                            self.visible = true;
-                        }
+                match self.lookup(x, y, click_at) {
+                    Ok(result) => {
+                        let _ = self.app.emit("lookup-result", result);
 
-                        Err(error) => {
-                            eprintln!("Lookup failed: {error}");
+                        self.overlay.show(x, y);
+                        self.visible = true;
+                    }
 
-                            let error = LookupError {
-                                code: "lookup_failed".to_string(),
-                                message: error,
-                            };
+                    Err(error) => {
+                        eprintln!("Lookup failed: {error}");
 
-                            let _ = self.app.emit("lookup-error", error);
-                        }
+                        let error = LookupError {
+                            code: "lookup_failed".to_string(),
+                            message: error,
+                        };
+
+                        let _ = self.app.emit("lookup-error", error);
                     }
                 }
             }
         }
     }
-
-    // =====================================================
-    // LOOKUP
-    // =====================================================
 
     fn lookup(
         &self,
@@ -116,10 +98,10 @@ impl ClickPipeline {
         // SCREENSHOT
         // -------------------------------------------------
 
-        let mut captured = capture_screen(click_x, click_y)?;
+        let captured = capture_screen(click_x, click_y)?;
 
         // -------------------------------------------------
-        // LOCAL OCR
+        // OCR
         // -------------------------------------------------
 
         let ocr_boxes = {
@@ -133,60 +115,30 @@ impl ClickPipeline {
         };
 
         // -------------------------------------------------
-        // FIND OCR BOX UNDER CLICK
+        // FIND WORD UNDER CLICK
         // -------------------------------------------------
 
         let local_x = captured.click_x as f32;
         let local_y = captured.click_y as f32;
 
-        let mut clicked_ocr_bbox: Option<(f32, f32, f32, f32)> = None;
+        let clicked_word = ocr_boxes
+            .iter()
+            .find(|ocr_box| ocr_box.contains_point(local_x, local_y))
+            .map(|ocr_box| ocr_box.text.trim().to_string())
+            .filter(|word| !word.is_empty());
 
-        let mut clicked_ocr_text: Option<String> = None;
-
-        for ocr_box in &ocr_boxes {
-            if ocr_box.contains_point(local_x, local_y) {
-                clicked_ocr_text = Some(ocr_box.text.clone());
-                break;
-            }
-        }
-
-        match &clicked_ocr_text {
-            Some(word) => { 
+        match &clicked_word {
+            Some(word) => {
                 println!("CLICKED WORD: {}", word);
             }
+
             None => {
                 println!("CLICKED WORD: <none>");
             }
         }
 
         // -------------------------------------------------
-        // RESULT OF OCR CLICK TEST
-        // -------------------------------------------------
-
-        // -------------------------------------------------
-        // HIGHLIGHT CLICKED OCR TEXT ON SCREENSHOT
-        // -------------------------------------------------
-
-        if let Some(ocr_box) = ocr_boxes
-            .iter()
-            .find(|ocr_box| ocr_box.contains_point(local_x, local_y))
-        {
-            let (min_x, min_y, max_x, max_y) = ocr_box.bounding_rect();
-
-            draw_ocr_highlight(&mut captured.image, min_x, min_y, max_x, max_y);
-        } else {
-            println!("No OCR text under click, no highlight drawn");
-        }
-
-        // -------------------------------------------------
-        // HIGHLIGHT OCR WORD ON SCREENSHOT
-        // -------------------------------------------------
-        //
-        // OCR уже выполнен по чистому screenshot.
-        //
-
-        // -------------------------------------------------
-        // CROP AROUND CLICK
+        // CROP
         // -------------------------------------------------
 
         let cropped = crop_around_point(
@@ -196,10 +148,6 @@ impl ClickPipeline {
             CROP_WIDTH,
             CROP_HEIGHT,
         );
-
-        // -------------------------------------------------
-        // UPSCALE
-        // -------------------------------------------------
 
         let vision_image = upscale_nearest(&cropped, CROP_SCALE);
 
@@ -214,26 +162,47 @@ impl ClickPipeline {
         }
 
         // -------------------------------------------------
-        // AI PROVIDER
+        // AI
         // -------------------------------------------------
 
-        let request_started = Instant::now();
-
         let result = self.provider.lookup(&png, LOOKUP_SYSTEM_PROMPT)?;
-
-        let received_at = now_ms();
 
         println!(
             ">>> Time from click to AI response: {:.2} s",
             click_at.elapsed().as_secs_f64()
         );
 
+        // -------------------------------------------------
+        // IMPORTANT
+        // -------------------------------------------------
+        //
+        // Сейчас AI ещё возвращает полный LookupResult.
+        //
+        // Но если OCR нашёл слово, именно оно является
+        // словом, выбранным пользователем.
+        //
+        // Поэтому заменяем result.word на OCR-слово.
+        //
+        // В дальнейшем здесь будет:
+        //
+        // OCR word
+        //     ↓
+        // offline dictionary
+        //     ↓
+        // найдено → без AI
+        //     ↓
+        // не найдено → AI
+        //
+        // -------------------------------------------------
+
+        let mut result = result;
+
+        if let Some(word) = clicked_word {
+            result.word = word;
+        }
+
         Ok(result)
     }
-
-    // =====================================================
-    // DEBUG
-    // =====================================================
 
     fn save_debug_screenshot(&self, png: &[u8]) -> Option<PathBuf> {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
