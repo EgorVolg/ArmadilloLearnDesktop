@@ -4,7 +4,7 @@ use std::{
     time::Instant,
 };
 
-use crate::app_core::ocr::engine::OcrEngine;
+use crate::app_core::{lookup::provider::_trait::AiProvider, ocr::engine::OcrEngine};
 
 use tauri::{AppHandle, Emitter};
 
@@ -14,7 +14,6 @@ use crate::app_core::{
         image::{crop_around_point, encode_png, upscale_nearest},
         marker::draw_click_marker,
         prompt::LOOKUP_SYSTEM_PROMPT,
-        provider::_trait::AiProvider,
         time::now_ms,
         LookupError,
     },
@@ -32,14 +31,53 @@ const CROP_SCALE: u32 = 1;
 // =========================================================
 // PIPELINE
 // =========================================================
+fn draw_ocr_highlight(
+    image: &mut image::RgbaImage,
+    min_x: f32,
+    min_y: f32,
+    max_x: f32,
+    max_y: f32,
+) {
+    use image::Rgba;
+
+    let width = image.width();
+    let height = image.height();
+
+    let x1 = min_x.max(0.0).min((width - 1) as f32) as u32;
+    let y1 = min_y.max(0.0).min((height - 1) as f32) as u32;
+    let x2 = max_x.max(0.0).min((width - 1) as f32) as u32;
+    let y2 = max_y.max(0.0).min((height - 1) as f32) as u32;
+
+    let thickness = 3u32;
+
+    let highlight = Rgba([255, 255, 0, 255]);
+
+    for t in 0..thickness {
+        let top = y1.saturating_sub(t);
+        let bottom = (y2 + t).min(height - 1);
+
+        for x in x1.saturating_sub(t)..=x2.min(width - 1) {
+            image.put_pixel(x, top, highlight);
+            image.put_pixel(x, bottom, highlight);
+        }
+
+        let left = x1.saturating_sub(t);
+        let right = (x2 + t).min(width - 1);
+
+        for y in y1.saturating_sub(t)..=y2.min(height - 1) {
+            image.put_pixel(left, y, highlight);
+            image.put_pixel(right, y, highlight);
+        }
+    }
+}
 
 pub struct ClickPipeline {
     app: AppHandle,
     overlay: Arc<OverlayManager>,
     provider: Arc<dyn AiProvider>,
     ocr: Arc<Mutex<OcrEngine>>,
-    // Флаг «окно-оверлей сейчас показано». Точкой входа владеет
-    // единственный поток-обработчик событий, поэтому поле не шарится между потоками.
+
+    // Флаг «окно-оверлей сейчас показано».
     visible: bool,
 }
 
@@ -72,15 +110,12 @@ impl ClickPipeline {
             InputEvent::Lookup { x, y } => {
                 println!("ClickPipeline: Lookup at ({x}, {y})");
 
-                // Засекаем момент клика, чтобы потом залогировать,
-                // сколько секунд прошло от клика до выполнения запроса.
                 let click_at = Instant::now();
 
-                // Если окно-оверлей уже открыто - повторный клик закрывает
+                // Если окно-оверлей уже открыто — повторный клик закрывает
                 // его сразу, без повторного распознавания слова.
                 if self.visible {
                     println!("Overlay is open, closing it immediately");
-
                     self.overlay.hide();
                     self.visible = false;
                 } else {
@@ -144,6 +179,15 @@ impl ClickPipeline {
             captured.image.width, captured.image.height, captured.origin_x, captured.origin_y
         );
 
+        println!(
+            "Click in screenshot coordinates: ({}, {})",
+            captured.click_x, captured.click_y
+        );
+
+        // -------------------------------------------------
+        // LOCAL OCR
+        // -------------------------------------------------
+
         println!("=== STARTING LOCAL OCR ===");
 
         let ocr_boxes = {
@@ -159,24 +203,81 @@ impl ClickPipeline {
         println!("=== LOCAL OCR COMPLETE ===");
         println!("OCR detected {} text regions", ocr_boxes.len());
 
+        // -------------------------------------------------
+        // DEBUG: PRINT ALL OCR BOXES
+        // -------------------------------------------------
+
+        let local_x = captured.click_x as f32;
+        let local_y = captured.click_y as f32;
+
+        println!(
+            "Searching OCR boxes for click at ({:.1}, {:.1})",
+            local_x, local_y
+        );
+
+        let mut clicked_ocr_text: Option<String> = None;
+
         for (index, ocr_box) in ocr_boxes.iter().enumerate() {
+            let (min_x, min_y, max_x, max_y) = ocr_box.bounding_rect();
+
+            let contains_click = ocr_box.contains_point(local_x, local_y);
+
             println!(
-                "OCR #{}: '{}' confidence={:.3}",
-                index, ocr_box.text, ocr_box.confidence
-            );
+            "OCR #{index}: '{}' confidence={:.3} bbox=({:.1}, {:.1})-({:.1}, {:.1}) contains_click={}",
+            ocr_box.text,
+            ocr_box.confidence,
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+            contains_click
+        );
+
+            if contains_click {
+                clicked_ocr_text = Some(ocr_box.text.clone());
+            }
         }
 
-        let mut marked_image = captured.image;
-        let local_x = captured.click_x;
-        let local_y = captured.click_y;
+        // -------------------------------------------------
+        // RESULT OF OCR CLICK TEST
+        // -------------------------------------------------
 
-        draw_click_marker(&mut marked_image, local_x, local_y);
+        println!("=== OCR CLICK TEST ===");
+
+        match &clicked_ocr_text {
+            Some(text) => {
+                println!("CLICKED OCR TEXT: '{}'", text);
+            }
+
+            None => {
+                println!(
+                    "NO OCR TEXT UNDER CLICK at ({:.1}, {:.1})",
+                    local_x, local_y
+                );
+            }
+        }
+
+        println!("=== END OCR CLICK TEST ===");
+
+        // -------------------------------------------------
+        // MARK CLICK
+        // -------------------------------------------------
+
+        let mut marked_image = captured.image;
+
+        draw_click_marker(&mut marked_image, captured.click_x, captured.click_y);
 
         // -------------------------------------------------
         // CROP AROUND CLICK
         // -------------------------------------------------
 
-        let cropped = crop_around_point(&marked_image, local_x, local_y, CROP_WIDTH, CROP_HEIGHT);
+        let cropped = crop_around_point(
+            &marked_image,
+            captured.click_x,
+            captured.click_y,
+            CROP_WIDTH,
+            CROP_HEIGHT,
+        );
 
         println!("Vision crop: {}x{}", cropped.width, cropped.height);
 
@@ -233,9 +334,7 @@ impl ClickPipeline {
     }
 
     // =====================================================
-    // DEBUG: сохраняем скриншот, который ушёл в API,
-    // чтобы можно было визуально проверить маркер и кадр.
-    // Папка лежит в корне проекта: <корень проекта>/screenshots
+    // DEBUG
     // =====================================================
 
     fn save_debug_screenshot(&self, png: &[u8]) -> Option<PathBuf> {

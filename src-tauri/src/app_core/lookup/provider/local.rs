@@ -7,7 +7,8 @@ use serde::Deserialize;
 use crate::app_core::lookup::{provider::_trait::AiProvider, time::now_ms, types::LookupResult};
 
 const OLLAMA_URL: &str = "http://localhost:11434/api/chat";
-const OLLAMA_MODEL: &str = "qwen3-vl:8b-instruct";
+// const OLLAMA_MODEL: &str = "qwen3-vl:8b-instruct";
+const OLLAMA_MODEL: &str = "qwen3-vl:8b-instr___uct";
 
 pub struct LocalProvider {
     client: Client,
