@@ -3,11 +3,16 @@ import "./OverlayApp.css";
 import { Bookmark, BookmarkCheck } from "../../assets/Bookmark";
 import flag from "../../assets/Flag_of_Russia.png";
 import { LookupError, TranslationDataType } from "../../shared";
-import { listen } from "@tauri-apps/api/event"; 
+import { listen } from "@tauri-apps/api/event";
 
 export const OverlayApp = () => {
   const [check, setCheck] = useState(false);
   const [error, setError] = useState<LookupError>();
+
+  const [ocrHighlight, setOcrHighlight] = useState<
+    [number, number, number, number] | null
+  >(null);
+
   const [translationData, setTranslationData] = useState<TranslationDataType>({
     sentence: "",
     word: "",
@@ -57,6 +62,32 @@ export const OverlayApp = () => {
     const unlisteners: Promise<() => void>[] = [
       listen<TranslationDataType>("lookup-result", (event) => {
         console.log("Translation data:", event.payload);
+        setError(undefined);
+        setTranslationData(event.payload);
+      }),
+
+      listen<LookupError>("lookup-error", (event) => {
+        console.error("Lookup error!!!!!!:", event.payload.message);
+        setError(event.payload);
+      }),
+
+      listen<[number, number, number, number]>("ocr-highlight", (event) => {
+        console.log("OCR highlight:", event.payload);
+        setOcrHighlight(event.payload);
+      }),
+    ];
+
+    return () => {
+      unlisteners.forEach((unlisten) => {
+        unlisten.then((fn) => fn());
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    const unlisteners: Promise<() => void>[] = [
+      listen<TranslationDataType>("lookup-result", (event) => {
+        console.log("Translation data:", event.payload);
 
         setError(undefined);
         setTranslationData(event.payload);
@@ -78,9 +109,22 @@ export const OverlayApp = () => {
 
   return (
     <div className="overlay-app">
+      {ocrHighlight && (
+        <div
+          className="ocr-highlight"
+          style={{
+            left: ocrHighlight[0],
+            top: ocrHighlight[1],
+            width: ocrHighlight[2] - ocrHighlight[0],
+            height: ocrHighlight[3] - ocrHighlight[1],
+          }}
+        />
+      )}
+
       <button className="bookmark" onClick={() => setCheck(!check)}>
         {check ? <Bookmark /> : <BookmarkCheck />}
       </button>
+
       <main className="container">
         {error ? (
           <article>

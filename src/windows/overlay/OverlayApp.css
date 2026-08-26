@@ -7,6 +7,15 @@
   background-color: rgba(0, 0, 0, 0.2);
 }
 
+.ocr-highlight {
+  position: absolute;
+  box-sizing: border-box;
+  border: 3px solid rgb(255, 221, 0);
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 9999;
+}
+
 .bookmark {
   position: absolute;
   top: -7px;
@@ -80,7 +89,7 @@ hr {
   align-items: center;
   flex-wrap: wrap;
   gap: 4px;
-  padding-bottom: 5px; 
+  padding-bottom: 5px;
 
   color: #ffffff;
   font-size: 18px;
