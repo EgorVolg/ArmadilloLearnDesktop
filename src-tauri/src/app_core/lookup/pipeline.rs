@@ -1,8 +1,10 @@
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Instant,
 };
+
+use crate::app_core::ocr::engine::OcrEngine;
 
 use tauri::{AppHandle, Emitter};
 
@@ -35,6 +37,7 @@ pub struct ClickPipeline {
     app: AppHandle,
     overlay: Arc<OverlayManager>,
     provider: Arc<dyn AiProvider>,
+    ocr: Arc<Mutex<OcrEngine>>,
     // Флаг «окно-оверлей сейчас показано». Точкой входа владеет
     // единственный поток-обработчик событий, поэтому поле не шарится между потоками.
     visible: bool,
@@ -49,11 +52,13 @@ impl ClickPipeline {
         overlay: Arc<OverlayManager>,
         app: AppHandle,
         provider: Arc<dyn AiProvider>,
+        ocr: Arc<Mutex<OcrEngine>>,
     ) -> Self {
         Self {
             app,
             overlay,
             provider,
+            ocr,
             visible: false,
         }
     }
@@ -138,6 +143,28 @@ impl ClickPipeline {
             "Captured monitor: {}x{}, origin=({}, {})",
             captured.image.width, captured.image.height, captured.origin_x, captured.origin_y
         );
+
+        println!("=== STARTING LOCAL OCR ===");
+
+        let ocr_boxes = {
+            let mut ocr = self
+                .ocr
+                .lock()
+                .map_err(|_| "OCR engine mutex poisoned".to_string())?;
+
+            ocr.recognize(&captured.image)
+                .map_err(|error| format!("OCR failed: {error:#}"))?
+        };
+
+        println!("=== LOCAL OCR COMPLETE ===");
+        println!("OCR detected {} text regions", ocr_boxes.len());
+
+        for (index, ocr_box) in ocr_boxes.iter().enumerate() {
+            println!(
+                "OCR #{}: '{}' confidence={:.3}",
+                index, ocr_box.text, ocr_box.confidence
+            );
+        }
 
         let mut marked_image = captured.image;
         let local_x = captured.click_x;

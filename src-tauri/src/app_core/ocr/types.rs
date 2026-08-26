@@ -8,6 +8,7 @@ pub struct OcrPoint {
 pub struct OcrBox {
     pub points: [OcrPoint; 4],
     pub confidence: f32,
+    pub text: String,
 }
 
 impl OcrBox {
