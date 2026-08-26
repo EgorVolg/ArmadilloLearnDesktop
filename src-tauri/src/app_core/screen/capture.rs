@@ -16,24 +16,13 @@ pub struct CapturedScreen {
 }
 
 pub fn capture_screen(click_x: i32, click_y: i32) -> Result<CapturedScreen, String> {
-    println!("Getting screen for click at ({click_x}, {click_y})...");
-
     let screen = Screen::from_point(click_x, click_y)
         .map_err(|error| format!("Failed to find screen at ({click_x}, {click_y}): {error}"))?;
 
     let display = screen.display_info;
 
-    println!(
-        "Selected screen: id={}, position=({}, {}), size={}x{}",
-        display.id, display.x, display.y, display.width, display.height
-    );
-
     let local_click_x = click_x - display.x;
     let local_click_y = click_y - display.y;
-
-    println!("Click in screenshot coordinates: ({local_click_x}, {local_click_y})");
-
-    println!("Capturing selected screen...");
 
     let screenshot = screen
         .capture()
@@ -41,8 +30,6 @@ pub fn capture_screen(click_x: i32, click_y: i32) -> Result<CapturedScreen, Stri
 
     let width = screenshot.width();
     let height = screenshot.height();
-
-    println!("Screenshot captured: {}x{}", width, height);
 
     let pixels = screenshot.as_raw();
 

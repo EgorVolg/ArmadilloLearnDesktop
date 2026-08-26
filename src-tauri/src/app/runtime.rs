@@ -6,19 +6,10 @@ use std::{
 use tauri::AppHandle;
 
 use crate::app_core::{
-    input::{
-        event::InputEvent,
-        hotkey::HotkeyHook,
-        mouse::MouseHook,
-    },
+    input::{event::InputEvent, hotkey::HotkeyHook, mouse::MouseHook},
     lookup::{
         pipeline::ClickPipeline,
-        provider::{
-            _trait::AiProvider,
-            GeminiProvider,
-            GroqProvider,
-            LocalProvider,
-        },
+        provider::{_trait::AiProvider, GeminiProvider, GroqProvider, LocalProvider},
     },
     ocr::engine::OcrEngine,
     overlay::manager::OverlayManager,
@@ -59,10 +50,8 @@ impl AppRuntime {
         // быть подключены позже.
         //
 
-        let provider: Arc<dyn AiProvider> = Arc::new(
-            LocalProvider::new()
-                .expect("Failed to create Local provider"),
-        );
+        let provider: Arc<dyn AiProvider> =
+            Arc::new(LocalProvider::new().expect("Failed to create Local provider"));
 
         // =================================================
         // OCR
@@ -79,42 +68,27 @@ impl AppRuntime {
             .join("ocr")
             .join("ppocrv5-en");
 
-        println!(
-            "OCR model directory: {}",
-            model_dir.display()
-        );
-
-        let ocr = OcrEngine::new(model_dir)
-            .expect("Failed to initialize OCR engine");
+        let ocr = OcrEngine::new(model_dir).expect("Failed to initialize OCR engine");
 
         let ocr = Arc::new(Mutex::new(ocr));
-
-        println!("OCR engine initialized successfully");
 
         // =================================================
         // PIPELINE
         // =================================================
 
-        let mut pipeline = ClickPipeline::new(
-            overlay.clone(),
-            app.clone(),
-            provider,
-            ocr,
-        );
+        let mut pipeline = ClickPipeline::new(overlay.clone(), app.clone(), provider, ocr);
 
         // =================================================
         // MOUSE HOOK
         // =================================================
 
-        let mouse = MouseHook::start(tx.clone())
-            .expect("Failed to start mouse hook");
+        let mouse = MouseHook::start(tx.clone()).expect("Failed to start mouse hook");
 
         // =================================================
         // HOTKEY HOOK
         // =================================================
 
-        let hotkey = HotkeyHook::start(tx.clone())
-            .expect("Failed to start hotkey hook");
+        let hotkey = HotkeyHook::start(tx.clone()).expect("Failed to start hotkey hook");
 
         // =================================================
         // EVENT LOOP

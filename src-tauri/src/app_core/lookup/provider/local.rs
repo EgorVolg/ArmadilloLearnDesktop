@@ -39,8 +39,6 @@ struct LocalMessage {
 
 impl AiProvider for LocalProvider {
     fn lookup(&self, image_png: &[u8], prompt: &str) -> Result<LookupResult, String> {
-        println!("Sending screenshot to Ollama...");
-
         let encoded = general_purpose::STANDARD.encode(image_png);
 
         let request = serde_json::json!({
@@ -68,8 +66,6 @@ impl AiProvider for LocalProvider {
             }
         });
 
-        let request_started = now_ms();
-
         let response = self
             .client
             .post(OLLAMA_URL)
@@ -80,26 +76,13 @@ impl AiProvider for LocalProvider {
 
         let status = response.status();
 
-        println!("Ollama HTTP status: {status}");
-
         let response_text = response
             .text()
             .map_err(|error| format!("Failed to read Ollama response: {error}"))?;
 
-        let response_received = now_ms();
-
-        println!(
-            "Ollama round-trip: sent at {request_started} ms, response received at {response_received} ms (took {})",
-            response_received.saturating_sub(request_started)
-        );
-
         if !status.is_success() {
             return Err(format!("Ollama API returned {status}: {response_text}"));
         }
-
-        println!("=== OLLAMA API RESPONSE ===");
-        println!("{response_text}");
-        println!("=== END OLLAMA API RESPONSE ===");
 
         let response: LocalResponse = serde_json::from_str(&response_text).map_err(|error| {
             format!("Failed to parse Ollama API response: {error}\nResponse: {response_text}")
@@ -118,10 +101,6 @@ impl AiProvider for LocalProvider {
                     .filter(|thinking| !thinking.trim().is_empty())
             })
             .ok_or_else(|| "Ollama returned both empty content and thinking".to_string())?;
-
-        println!("=== OLLAMA CONTENT ===");
-        println!("{content}");
-        println!("=== END OLLAMA CONTENT ===");
 
         serde_json::from_str(content)
             .map_err(|error| format!("Failed to parse lookup JSON: {error}\nContent: {content}"))

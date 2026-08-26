@@ -44,8 +44,6 @@ pub fn run() {
             let runtime = AppRuntime::new(app.handle().clone());
             app.manage(runtime);
 
-            println!("=== TAURI SETUP COMPLETE ===");
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![open_main_window])
@@ -54,14 +52,9 @@ pub fn run() {
         .run(|_app, event| {
             // Закрытие main через стандартный крестик.
             if let tauri::RunEvent::WindowEvent {
-                label,
                 event: WindowEvent::CloseRequested { .. },
                 ..
             } = &event
-            {
-                if label == "main" {
-                    println!("=== MAIN WINDOW CLOSE REQUESTED ===");
-                }
-            }
+            {}
         });
 }

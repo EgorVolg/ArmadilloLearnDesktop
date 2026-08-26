@@ -13,11 +13,6 @@ impl OcrEngine {
     pub fn new(model_dir: impl Into<std::path::PathBuf>) -> Result<Self> {
         let model_dir = model_dir.into();
 
-        println!(
-            "Initializing PP-OCRv5 English OCR from: {}",
-            model_dir.display()
-        );
-
         let config = PPOCRV5_EN_MOBILE
             .config(model_dir)
             .with_pipeline(PipelineConfig::full());
@@ -25,18 +20,11 @@ impl OcrEngine {
         let engine =
             RapidOcr::new(config).context("failed to initialize PP-OCRv5 English OCR engine")?;
 
-        println!("PP-OCRv5 English OCR initialized");
-
         Ok(Self { engine })
     }
 
     pub fn recognize(&mut self, image: &Image) -> Result<Vec<OcrBox>> {
         let rgb = image_to_rgb_image(image)?;
-
-        println!(
-            "Running PP-OCRv5 on image {}x{}...",
-            image.width, image.height
-        );
 
         let result = self
             .engine
@@ -73,20 +61,6 @@ impl OcrEngine {
                 }
             })
             .collect::<Vec<_>>();
-
-        println!("=== OCR RESULTS ===");
-        println!("Detected {} text regions", boxes.len());
-
-        for (index, text_box) in boxes.iter().enumerate() {
-            let (min_x, min_y, max_x, max_y) = text_box.bounding_rect();
-
-            println!(
-                "#{index}: '{}' confidence={:.3} bbox=({:.1}, {:.1})-({:.1}, {:.1})",
-                text_box.text, text_box.confidence, min_x, min_y, max_x, max_y,
-            );
-        }
-
-        println!("=== END OCR RESULTS ===");
 
         Ok(boxes)
     }
