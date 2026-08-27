@@ -218,7 +218,7 @@ impl ClickPipeline {
         debug_ocr_boxes(&ocr_boxes, clicked_index, local_x, local_y);
 
         // =========================================================
-        // BUILD SMALL SENTENCE CONTEXT
+        // BUILD FULL SENTENCE CONTEXT
         // =========================================================
 
         let context = extract_sentence_context(&ocr_boxes, clicked_index);
@@ -286,32 +286,62 @@ impl ClickPipeline {
 // SENTENCE CONTEXT
 // ============================================================================
 //
-// Контекст специально ограничен.
+// Основная идея:
 //
-// Мы НЕ берём всю OCR-строку.
-// Берём только небольшой участок вокруг clicked word:
+// Мы больше НЕ используем:
+//     LEFT_CONTEXT_WORDS
+//     RIGHT_CONTEXT_WORDS
+//     MAX_CONTEXT_WIDTH_MULTIPLIER
 //
-//   LEFT_CONTEXT_WORDS  = сколько слов слева
-//   RIGHT_CONTEXT_WORDS = сколько слов справа
+// Потому что они искусственно обрезали предложение.
 //
-// Дополнительно контекст обрывается:
-//   - на конце предложения;
-//   - на большом горизонтальном разрыве;
-//   - при слишком большой суммарной ширине.
+// Вместо этого:
 //
-// Это существенно уменьшает шанс отправить в AI соседние UI-блоки.
+// 1. Собираем OCR boxes в визуальные строки.
+// 2. Находим строку, в которой находится clicked word.
+// 3. Идём назад до начала предложения.
+// 4. Идём вперёд до конца предложения.
+// 5. Если предложение переносится на следующую строку,
+//    продолжаем туда.
+// 6. При этом не пересекаем явно отделённые UI-блоки.
+//
+// Таким образом:
+//
+//     "The readiness and zeal with these builders ..."
+//                    ^
+//                 CLICK
+//
+// даст целое предложение от начала до ".".
+//
+
+// Абсолютный предохранитель от патологического OCR.
+// Нормальное предложение сюда никогда не должно упираться.
+//
+// 120 OCR boxes — это очень много для одного предложения,
+// но оставляет достаточно места для длинных книжных предложений.
+const MAX_SENTENCE_BOXES: usize = 120;
+
+// Максимальное количество визуальных строк,
+// через которые разрешаем переходить при поиске предложения.
+const MAX_SENTENCE_LINES: usize = 12;
+
+// Насколько далеко по вертикали соседняя строка может находиться
+// относительно высоты текста.
+//
+// Например:
+//
+// line 1
+//
+// line 2
+//
+// нормальный межстрочный интервал проходит.
+//
+// Огромный вертикальный скачок — вероятно другой UI block.
+const MAX_LINE_GAP_MULTIPLIER: f32 = 2.2;
+
 // ============================================================================
-
-const LEFT_CONTEXT_WORDS: usize = 5;
-const RIGHT_CONTEXT_WORDS: usize = 7;
-
-// Максимальная горизонтальная ширина контекста относительно
-// clicked word. Это дополнительный предохранитель от огромных строк.
-const MAX_CONTEXT_WIDTH_MULTIPLIER: f32 = 14.0;
-
-// Минимальная ширина, чтобы на маленьких шрифтах ограничение
-// не стало слишком агрессивным.
-const MIN_CONTEXT_WIDTH: f32 = 300.0;
+// MAIN SENTENCE EXTRACTION
+// ============================================================================
 
 fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> String {
     if ocr_boxes.is_empty() {
@@ -324,204 +354,489 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
 
     let clicked = &ocr_boxes[clicked_index];
 
-    let line = collect_same_visual_line(ocr_boxes, clicked_index);
+    println!(
+        "Building full sentence context around '{}'",
+        clicked.text.trim()
+    );
 
-    if line.is_empty() {
+    // =========================================================
+    // BUILD VISUAL LINES
+    // =========================================================
+
+    let lines = collect_visual_lines(ocr_boxes);
+
+    if lines.is_empty() {
         return clicked.text.trim().to_string();
     }
 
-    println!("Same visual line contains {} OCR boxes", line.len());
+    println!("OCR contains {} visual lines", lines.len());
 
-    let clicked_position = line.iter().position(|index| *index == clicked_index);
+    // =========================================================
+    // FIND CLICKED LINE
+    // =========================================================
+
+    let clicked_line_index = lines.iter().position(|line| line.contains(&clicked_index));
+
+    let Some(clicked_line_index) = clicked_line_index else {
+        return clicked.text.trim().to_string();
+    };
+
+    println!("Clicked word belongs to visual line {}", clicked_line_index);
+
+    let clicked_position = lines[clicked_line_index]
+        .iter()
+        .position(|index| *index == clicked_index);
 
     let Some(clicked_position) = clicked_position else {
         return clicked.text.trim().to_string();
     };
 
-    println!(
-        "Clicked box position inside visual line: {}",
-        clicked_position
-    );
+    println!("Clicked word position inside line: {}", clicked_position);
 
     // =========================================================
-    // CONTEXT WIDTH
+    // FIND SENTENCE START
     // =========================================================
 
-    let (clicked_min_x, _clicked_min_y, clicked_max_x, _clicked_max_y) = clicked.bounding_rect();
+    let mut start_line = clicked_line_index;
+    let mut start_position = clicked_position;
 
-    let clicked_width = (clicked_max_x - clicked_min_x).max(1.0);
+    let mut traversed_lines = 0usize;
+    let mut traversed_boxes = 0usize;
 
-    let max_context_width = (clicked_width * MAX_CONTEXT_WIDTH_MULTIPLIER).max(MIN_CONTEXT_WIDTH);
-
-    // =========================================================
-    // EXPAND LEFT
-    // =========================================================
-
-    let mut left = clicked_position;
-
-    let mut left_words = 0usize;
-
-    while left > 0 && left_words < LEFT_CONTEXT_WORDS {
-        let current_index = line[left];
-        let previous_index = line[left - 1];
-
-        let current = &ocr_boxes[current_index];
-        let previous = &ocr_boxes[previous_index];
-
-        // Предыдущий OCR box завершает предложение.
-        if ends_sentence(previous.text.trim()) {
+    'find_start: loop {
+        if traversed_boxes >= MAX_SENTENCE_BOXES {
+            println!("Sentence start search stopped at MAX_SENTENCE_BOXES");
             break;
         }
 
-        // Большой горизонтальный разрыв = другой блок.
-        if is_large_horizontal_gap(previous, current) {
+        if start_position > 0 {
+            let previous_index = lines[start_line][start_position - 1];
+
+            let current_index = lines[start_line][start_position];
+
+            let previous = &ocr_boxes[previous_index];
+
+            let current = &ocr_boxes[current_index];
+
+            // Если предыдущий box заканчивает предложение,
+            // начало нашего предложения — текущий box.
+            if ends_sentence(previous.text.trim()) {
+                break;
+            }
+
+            // Большой gap внутри строки может означать
+            // отдельный UI block.
+            if is_large_horizontal_gap(previous, current) {
+                println!("Sentence start blocked by large horizontal gap");
+                break;
+            }
+
+            start_position -= 1;
+            traversed_boxes += 1;
+
+            continue;
+        }
+
+        // Мы дошли до начала визуальной строки.
+        //
+        // Теперь пытаемся перейти на предыдущую строку.
+        if start_line == 0 {
             break;
         }
 
-        // Проверяем общую ширину будущего контекста.
-        let candidate_left = previous.bounding_rect().0;
-
-        let candidate_width = clicked_max_x - candidate_left;
-
-        if candidate_width > max_context_width {
+        if traversed_lines >= MAX_SENTENCE_LINES {
+            println!("Sentence start search stopped at MAX_SENTENCE_LINES");
             break;
         }
 
-        left -= 1;
-        left_words += 1;
+        let previous_line_index = start_line - 1;
+
+        let previous_line = &lines[previous_line_index];
+
+        let current_line = &lines[start_line];
+
+        if !lines_can_be_continuous(ocr_boxes, previous_line, current_line) {
+            println!("Previous visual line is not continuous with current line");
+            break;
+        }
+
+        let previous_last_position = previous_line.len() - 1;
+
+        let previous_last_index = previous_line[previous_last_position];
+
+        let previous_last = &ocr_boxes[previous_last_index];
+
+        // Если предыдущая строка закончилась точкой,
+        // значит наше предложение начинается здесь.
+        if ends_sentence(previous_last.text.trim()) {
+            break;
+        }
+
+        // Переходим в конец предыдущей строки.
+        start_line = previous_line_index;
+        start_position = previous_last_position;
+
+        traversed_lines += 1;
+        traversed_boxes += 1;
     }
 
     // =========================================================
-    // EXPAND RIGHT
+    // FIND SENTENCE END
     // =========================================================
 
-    let mut right = clicked_position;
+    let mut end_line = clicked_line_index;
+    let mut end_position = clicked_position;
 
-    let mut right_words = 0usize;
+    traversed_lines = 0;
+    traversed_boxes = 0;
 
-    while right + 1 < line.len() && right_words < RIGHT_CONTEXT_WORDS {
-        let current_index = line[right];
-        let next_index = line[right + 1];
+    'find_end: loop {
+        if traversed_boxes >= MAX_SENTENCE_BOXES {
+            println!("Sentence end search stopped at MAX_SENTENCE_BOXES");
+            break;
+        }
+
+        let current_index = lines[end_line][end_position];
 
         let current = &ocr_boxes[current_index];
-        let next = &ocr_boxes[next_index];
 
-        // Большой горизонтальный разрыв = другой блок.
-        if is_large_horizontal_gap(current, next) {
+        // Если текущий box уже заканчивает предложение,
+        // включаем его и останавливаемся.
+        if ends_sentence(current.text.trim()) {
+            break 'find_end;
+        }
+
+        // =====================================================
+        // NEXT BOX IN SAME LINE
+        // =====================================================
+
+        if end_position + 1 < lines[end_line].len() {
+            let next_index = lines[end_line][end_position + 1];
+
+            let next = &ocr_boxes[next_index];
+
+            if is_large_horizontal_gap(current, next) {
+                println!("Sentence end blocked by large horizontal gap");
+                break;
+            }
+
+            end_position += 1;
+            traversed_boxes += 1;
+
+            continue;
+        }
+
+        // =====================================================
+        // NEXT VISUAL LINE
+        // =====================================================
+
+        if end_line + 1 >= lines.len() {
             break;
         }
 
-        let candidate_right = next.bounding_rect().2;
-
-        let candidate_width = candidate_right - clicked_min_x;
-
-        if candidate_width > max_context_width {
+        if traversed_lines >= MAX_SENTENCE_LINES {
+            println!("Sentence end search stopped at MAX_SENTENCE_LINES");
             break;
         }
 
-        right += 1;
-        right_words += 1;
+        let next_line_index = end_line + 1;
 
-        // После добавления box проверяем конец предложения.
-        if ends_sentence(next.text.trim()) {
+        let current_line = &lines[end_line];
+
+        let next_line = &lines[next_line_index];
+
+        if !lines_can_be_continuous(ocr_boxes, current_line, next_line) {
+            println!("Next visual line is not continuous with current line");
             break;
         }
+
+        end_line = next_line_index;
+        end_position = 0;
+
+        traversed_lines += 1;
+        traversed_boxes += 1;
     }
 
     // =========================================================
-    // BUILD FINAL CONTEXT
+    // BUILD FINAL TEXT
     // =========================================================
 
-    let mut parts = Vec::new();
+    let mut parts: Vec<&str> = Vec::new();
 
-    for position in left..=right {
-        let index = line[position];
+    let mut line_index = start_line;
 
-        let text = ocr_boxes[index].text.trim();
+    while line_index <= end_line {
+        let line = &lines[line_index];
 
-        if !text.is_empty() {
-            parts.push(text);
+        let from = if line_index == start_line {
+            start_position
+        } else {
+            0
+        };
+
+        let to = if line_index == end_line {
+            end_position
+        } else {
+            line.len().saturating_sub(1)
+        };
+
+        if from <= to {
+            for position in from..=to {
+                let index = line[position];
+
+                let text = ocr_boxes[index].text.trim();
+
+                if !text.is_empty() {
+                    parts.push(text);
+                }
+            }
         }
+
+        if line_index == end_line {
+            break;
+        }
+
+        line_index += 1;
     }
 
     let context = join_ocr_text(&parts);
 
-    println!("Context range: line[{}..={}]", left, right);
+    println!("Sentence range: lines {}..={}", start_line, end_line);
 
-    println!("Context built from {} OCR boxes", parts.len());
+    println!("Sentence contains {} OCR boxes", parts.len());
 
-    println!(
-        "Context limits: left={}, right={}, max_width={:.1}px",
-        LEFT_CONTEXT_WORDS, RIGHT_CONTEXT_WORDS, max_context_width
-    );
+    println!("Sentence start: '{}'", parts.first().copied().unwrap_or(""));
+
+    println!("Sentence end: '{}'", parts.last().copied().unwrap_or(""));
+
+    println!("FULL SENTENCE CONTEXT: '{}'", context);
 
     context
 }
 
 // ============================================================================
-// SAME VISUAL LINE
+// VISUAL LINES
 // ============================================================================
+//
+// OCR engine отдаёт word-level boxes, поэтому здесь восстанавливаем
+// строки по вертикальной позиции.
+//
+// Важно:
+//
+// НЕ используем overlap bbox.
+//
+// Сравниваем именно центры по Y.
+//
+// Это предотвращает смешивание соседних строк.
+//
 
-fn collect_same_visual_line(ocr_boxes: &[OcrBox], clicked_index: usize) -> Vec<usize> {
-    if clicked_index >= ocr_boxes.len() {
+fn collect_visual_lines(ocr_boxes: &[OcrBox]) -> Vec<Vec<usize>> {
+    if ocr_boxes.is_empty() {
         return Vec::new();
     }
 
-    let clicked = &ocr_boxes[clicked_index];
+    // Сначала сортируем все boxes сверху вниз.
+    let mut indexes: Vec<usize> = (0..ocr_boxes.len()).collect();
 
-    let (_clicked_min_x, clicked_min_y, _clicked_max_x, clicked_max_y) = clicked.bounding_rect();
+    indexes.sort_by(|a, b| {
+        let (_, a_min_y, _, a_max_y) = ocr_boxes[*a].bounding_rect();
 
-    let clicked_height = (clicked_max_y - clicked_min_y).max(1.0);
+        let (_, b_min_y, _, b_max_y) = ocr_boxes[*b].bounding_rect();
 
-    let clicked_center_y = (clicked_min_y + clicked_max_y) / 2.0;
+        let a_center_y = (a_min_y + a_max_y) / 2.0;
 
-    // Было 0.65.
-    //
-    // Немного уменьшаем tolerance, чтобы соседние строки
-    // не слипались в одну "визуальную строку".
-    let tolerance = (clicked_height * 0.45).max(6.0);
+        let b_center_y = (b_min_y + b_max_y) / 2.0;
 
-    let mut indexes = Vec::new();
+        a_center_y
+            .partial_cmp(&b_center_y)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
-    for (index, item) in ocr_boxes.iter().enumerate() {
-        if same_visual_line(
-            item,
-            clicked_center_y,
-            clicked_min_y,
-            clicked_max_y,
-            tolerance,
-        ) {
-            indexes.push(index);
+    let mut lines: Vec<Vec<usize>> = Vec::new();
+
+    for index in indexes {
+        let (_, min_y, _, max_y) = ocr_boxes[index].bounding_rect();
+
+        let center_y = (min_y + max_y) / 2.0;
+
+        let height = (max_y - min_y).abs().max(1.0);
+
+        let mut added_to_line = false;
+
+        // Ищем ближайшую существующую строку.
+        //
+        // Идём с конца, потому что boxes уже отсортированы
+        // сверху вниз.
+        for line in lines.iter_mut().rev() {
+            if line.is_empty() {
+                continue;
+            }
+
+            let reference_index = line[line.len() - 1];
+
+            let (_, ref_min_y, _, ref_max_y) = ocr_boxes[reference_index].bounding_rect();
+
+            let ref_center_y = (ref_min_y + ref_max_y) / 2.0;
+
+            let ref_height = (ref_max_y - ref_min_y).abs().max(1.0);
+
+            let tolerance = (height.max(ref_height) * 0.45).max(6.0);
+
+            if (center_y - ref_center_y).abs() <= tolerance {
+                line.push(index);
+                added_to_line = true;
+                break;
+            }
+
+            // Если уже ушли достаточно далеко по Y,
+            // старые строки проверять нет смысла.
+            if center_y > ref_center_y + height.max(ref_height) * 1.5 {
+                break;
+            }
+        }
+
+        if !added_to_line {
+            lines.push(vec![index]);
         }
     }
 
-    // Left -> right.
-    indexes.sort_by(|a, b| {
-        let ax = ocr_boxes[*a].bounding_rect().0;
-        let bx = ocr_boxes[*b].bounding_rect().0;
+    // В каждой строке сортируем слева направо.
+    for line in &mut lines {
+        line.sort_by(|a, b| {
+            let ax = ocr_boxes[*a].bounding_rect().0;
 
-        ax.partial_cmp(&bx).unwrap_or(std::cmp::Ordering::Equal)
+            let bx = ocr_boxes[*b].bounding_rect().0;
+
+            ax.partial_cmp(&bx).unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+
+    // Дополнительная сортировка строк по Y.
+    lines.sort_by(|a, b| {
+        let a_index = a[0];
+        let b_index = b[0];
+
+        let (_, a_min_y, _, a_max_y) = ocr_boxes[a_index].bounding_rect();
+
+        let (_, b_min_y, _, b_max_y) = ocr_boxes[b_index].bounding_rect();
+
+        let a_center = (a_min_y + a_max_y) / 2.0;
+
+        let b_center = (b_min_y + b_max_y) / 2.0;
+
+        a_center
+            .partial_cmp(&b_center)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    indexes
+    lines
 }
 
-fn same_visual_line(
-    item: &OcrBox,
-    clicked_center_y: f32,
-    clicked_min_y: f32,
-    clicked_max_y: f32,
-    tolerance: f32,
-) -> bool {
-    let (_, min_y, _, max_y) = item.bounding_rect();
+// ============================================================================
+// CHECK WHETHER TWO VISUAL LINES CAN BELONG TO THE SAME SENTENCE
+// ============================================================================
+//
+// Это важно для текста:
+//
+//     The readiness and zeal with which these
+//     builders set about their work, the exactness
+//
+// Мы должны разрешить переход между строками.
+//
+// Но при этом не хотим случайно соединить:
+//
+//     Main paragraph text...
+//
+//     [BUTTON] Settings
+//
+// Поэтому проверяем:
+//
+// 1. вертикальный gap;
+// 2. горизонтальную близость строк;
+// 3. отсутствие огромного скачка по X.
+//
 
-    let center_y = (min_y + max_y) / 2.0;
+fn lines_can_be_continuous(ocr_boxes: &[OcrBox], previous: &[usize], current: &[usize]) -> bool {
+    if previous.is_empty() || current.is_empty() {
+        return false;
+    }
 
-    let vertical_distance = (center_y - clicked_center_y).abs();
+    let previous_first = &ocr_boxes[previous[0]];
 
-    let vertical_overlap = min_y <= clicked_max_y && max_y >= clicked_min_y;
+    let previous_last = &ocr_boxes[previous[previous.len() - 1]];
 
-    vertical_overlap || vertical_distance <= tolerance
+    let current_first = &ocr_boxes[current[0]];
+
+    let previous_bounds = previous_first.bounding_rect();
+
+    let previous_last_bounds = previous_last.bounding_rect();
+
+    let current_bounds = current_first.bounding_rect();
+
+    let previous_min_y = previous_bounds.1;
+
+    let previous_max_y = previous_bounds.3;
+
+    let current_min_y = current_bounds.1;
+
+    let current_max_y = current_bounds.3;
+
+    let previous_height = (previous_max_y - previous_min_y).abs().max(1.0);
+
+    let current_height = (current_max_y - current_min_y).abs().max(1.0);
+
+    let text_height = previous_height.max(current_height);
+
+    let vertical_gap = current_min_y - previous_max_y;
+
+    // Если строки перекрываются или gap небольшой —
+    // это нормальный межстрочный интервал.
+    if vertical_gap > text_height * MAX_LINE_GAP_MULTIPLIER {
+        return false;
+    }
+
+    // =========================================================
+    // HORIZONTAL CONTINUITY
+    // =========================================================
+    //
+    // Сравниваем начало следующей строки
+    // с началом предыдущей.
+    //
+    // Для обычного wrapped paragraph:
+    //
+    //     The readiness and zeal with which
+    //     these builders set about their work
+    //
+    // X примерно одинаковый.
+    //
+    // Если следующий блок начинается очень далеко —
+    // вероятно это другой UI block.
+
+    let previous_min_x = previous_bounds.0;
+
+    let previous_max_x = previous_last_bounds.2;
+
+    let current_min_x = current_bounds.0;
+
+    let current_max_x = current_bounds.2;
+
+    let previous_width = (previous_max_x - previous_min_x).abs().max(1.0);
+
+    let current_width = (current_max_x - current_min_x).abs().max(1.0);
+
+    let horizontal_reference = previous_width.max(current_width).max(20.0);
+
+    let x_difference = (current_min_x - previous_min_x).abs();
+
+    // Обычная строка paragraph может начинаться
+    // немного левее/правее из-за OCR.
+    //
+    // Но огромный сдвиг считаем новым блоком.
+    if x_difference > horizontal_reference * 2.0 {
+        return false;
+    }
+
+    true
 }
 
 // ============================================================================
@@ -545,11 +860,10 @@ fn is_large_horizontal_gap(left: &OcrBox, right: &OcrBox) -> bool {
 
     let text_height = left_height.max(right_height).max(1.0);
 
-    // Было 1.5.
+    // Оставляем довольно мягкое ограничение.
     //
-    // Для ограничения контекста лучше чуть раньше
-    // считать большой gap границей блока.
-    let threshold = text_height * 1.25;
+    // Нам важно не резать нормальные пробелы между словами.
+    let threshold = text_height * 2.5;
 
     gap >= threshold
 }
@@ -570,6 +884,25 @@ fn join_ocr_text(parts: &[&str]) -> String {
 // ============================================================================
 // SENTENCE END
 // ============================================================================
+//
+// Учитываем:
+//
+//     .
+//     ?
+//     !
+//
+// и закрывающие кавычки / скобки:
+//
+//     ."
+//     .)
+//     .]
+//
+// Например:
+//
+//     "This is a sentence."
+//
+// корректно определяется как конец предложения.
+//
 
 fn ends_sentence(text: &str) -> bool {
     let text = text.trim();

@@ -6,13 +6,9 @@ use std::{
 use tauri::AppHandle;
 
 use crate::app_core::{
-    input::{event::InputEvent, hotkey::HotkeyHook, mouse::MouseHook},
-    lookup::{
-        pipeline::ClickPipeline,
-        provider::{_trait::AiProvider, LocalProvider},
-    },
-    ocr::engine::OcrEngine,
-    overlay::manager::OverlayManager,
+    input::{event::InputEvent, hotkey::HotkeyHook, mouse::MouseHook}, lookup::{ 
+        pipeline::ClickPipeline, provider::{_trait::AiProvider, LocalProvider},
+    }, ocr::engine::OcrEngine, overlay::manager::OverlayManager,
 };
 
 /// Runtime приложения.
