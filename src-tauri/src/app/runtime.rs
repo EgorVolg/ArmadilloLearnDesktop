@@ -9,7 +9,7 @@ use crate::app_core::{
     input::{event::InputEvent, hotkey::HotkeyHook, mouse::MouseHook},
     lookup::{
         pipeline::ClickPipeline,
-        provider::{_trait::AiProvider, GeminiProvider, GroqProvider, LocalProvider},
+        provider::{_trait::AiProvider, LocalProvider},
     },
     ocr::engine::OcrEngine,
     overlay::manager::OverlayManager,
