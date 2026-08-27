@@ -10,7 +10,7 @@ export const OverlayApp = () => {
   const [error, setError] = useState<LookupError>();
 
   const [translationData, setTranslationData] = useState<TranslationDataType>({
-    sentence: "",
+    meaning: "",
     word: "",
     sentence_translation: "",
     word_translation: "",
@@ -155,7 +155,7 @@ export const OverlayApp = () => {
               </section>
 
               <section className="definition">
-                {translationData.sentence}
+                {translationData.meaning}
               </section>
 
               {translationData.synonyms.length > 0 && (

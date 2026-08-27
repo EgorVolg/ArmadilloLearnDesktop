@@ -1,5 +1,5 @@
 export interface TranslationDataType {
-  sentence: string;
+  meaning: string;
   word: string;
   sentence_translation: string;
   word_translation: string;

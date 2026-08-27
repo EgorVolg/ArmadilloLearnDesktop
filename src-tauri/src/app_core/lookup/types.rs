@@ -2,7 +2,7 @@ use serde::{ Deserialize, Serialize };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LookupResult {
-    pub sentence: String,
+    pub meaning: String,
     pub word: String,
     pub sentence_translation: String,
     pub word_translation: String,

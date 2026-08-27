@@ -37,7 +37,7 @@ struct LocalMessage {
 
 #[derive(Debug, Deserialize)]
 struct LocalLookup {
-    sentence: String,
+    meaning: String,
     word: String,
     sentence_translation: String,
     word_translation: String,
@@ -56,7 +56,7 @@ impl AiProvider for LocalProvider {
 Return the result as JSON matching the provided schema.
 
 Rules:
-- sentence: copy the English sentence exactly.
+- meaning: Definition of the word in this context in a single sentence.
 - word: copy the target word exactly.
 - sentence_translation: natural Russian translation of the sentence.
 - word_translation: Russian translation of the target word in this context.
@@ -70,7 +70,7 @@ Rules:
         let format = json!({
             "type": "object",
             "properties": {
-                "sentence": {
+                "meaning": {
                     "type": "string"
                 },
                 "word": {
@@ -98,7 +98,7 @@ Rules:
                 }
             },
             "required": [
-                "sentence",
+                "meaning",
                 "word",
                 "sentence_translation",
                 "word_translation",
@@ -167,7 +167,7 @@ Rules:
 
         Ok(LookupResult {
             word: word.to_string(),
-            sentence: sentence.to_string(),
+            meaning: generated.meaning.to_string(),
             sentence_translation: generated.sentence_translation,
             word_translation: generated.word_translation,
             synonyms: generated.synonyms,

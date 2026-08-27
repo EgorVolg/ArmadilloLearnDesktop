@@ -56,7 +56,7 @@ impl ClickPipeline {
                 match self.lookup(x, y, click_at) {
                     Ok((result, _clicked_ocr_bbox)) => {
                         println!("=== LOOKUP RESULT ===");
-                        println!("sentence: {}", result.sentence);
+                        println!("meaning: {}", result.meaning);
                         println!("word: {}", result.word);
                         println!("sentence_translation: {}", result.sentence_translation);
                         println!("word_translation: {}", result.word_translation);
