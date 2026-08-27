@@ -48,10 +48,8 @@ impl ClickPipeline {
                 // Second click closes the overlay.
                 if self.visible {
                     println!("Overlay is open, closing it immediately");
-
                     self.overlay.hide();
                     self.visible = false;
-
                     return;
                 }
 
@@ -170,6 +168,16 @@ impl ClickPipeline {
 
         let clicked_ocr = &ocr_boxes[clicked_index];
 
+        let clicked_ocr_local_bbox = clicked_ocr.bounding_rect();
+
+        println!(
+            "Clicked OCR LOCAL bbox=({:.1},{:.1})-({:.1},{:.1})",
+            clicked_ocr_local_bbox.0,
+            clicked_ocr_local_bbox.1,
+            clicked_ocr_local_bbox.2,
+            clicked_ocr_local_bbox.3
+        );
+
         let clicked_word = clicked_ocr.text.trim().to_string();
 
         if clicked_word.is_empty() {
@@ -210,7 +218,7 @@ impl ClickPipeline {
         debug_ocr_boxes(&ocr_boxes, clicked_index, local_x, local_y);
 
         // =========================================================
-        // BUILD SENTENCE CONTEXT
+        // BUILD SMALL SENTENCE CONTEXT
         // =========================================================
 
         let context = extract_sentence_context(&ocr_boxes, clicked_index);
@@ -278,17 +286,32 @@ impl ClickPipeline {
 // SENTENCE CONTEXT
 // ============================================================================
 //
-// Context is determined ONLY by:
+// Контекст специально ограничен.
 //
-// 1. Visual line.
-// 2. Sentence punctuation.
-// 3. Large horizontal OCR gaps.
+// Мы НЕ берём всю OCR-строку.
+// Берём только небольшой участок вокруг clicked word:
 //
-// There is deliberately NO dictionary of "bad" words.
+//   LEFT_CONTEXT_WORDS  = сколько слов слева
+//   RIGHT_CONTEXT_WORDS = сколько слов справа
 //
-// "Share", "Open", "Rust", "GitHub", "Run", etc.
-// are perfectly valid words and must NOT be removed.
+// Дополнительно контекст обрывается:
+//   - на конце предложения;
+//   - на большом горизонтальном разрыве;
+//   - при слишком большой суммарной ширине.
+//
+// Это существенно уменьшает шанс отправить в AI соседние UI-блоки.
 // ============================================================================
+
+const LEFT_CONTEXT_WORDS: usize = 5;
+const RIGHT_CONTEXT_WORDS: usize = 7;
+
+// Максимальная горизонтальная ширина контекста относительно
+// clicked word. Это дополнительный предохранитель от огромных строк.
+const MAX_CONTEXT_WIDTH_MULTIPLIER: f32 = 14.0;
+
+// Минимальная ширина, чтобы на маленьких шрифтах ограничение
+// не стало слишком агрессивным.
+const MIN_CONTEXT_WIDTH: f32 = 300.0;
 
 fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> String {
     if ocr_boxes.is_empty() {
@@ -301,10 +324,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
 
     let clicked = &ocr_boxes[clicked_index];
 
-    // ------------------------------------------------------------
-    // Find boxes belonging to the same visual line.
-    // ------------------------------------------------------------
-
     let line = collect_same_visual_line(ocr_boxes, clicked_index);
 
     if line.is_empty() {
@@ -312,15 +331,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
     }
 
     println!("Same visual line contains {} OCR boxes", line.len());
-
-    // ------------------------------------------------------------
-    // Find position of clicked box INSIDE sorted line.
-    //
-    // Important:
-    //
-    // line contains ORIGINAL OCR indexes.
-    // Therefore we don't need references/lifetimes at all.
-    // ------------------------------------------------------------
 
     let clicked_position = line.iter().position(|index| *index == clicked_index);
 
@@ -333,64 +343,94 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
         clicked_position
     );
 
-    // ------------------------------------------------------------
-    // Expand left.
-    // ------------------------------------------------------------
+    // =========================================================
+    // CONTEXT WIDTH
+    // =========================================================
+
+    let (clicked_min_x, _clicked_min_y, clicked_max_x, _clicked_max_y) = clicked.bounding_rect();
+
+    let clicked_width = (clicked_max_x - clicked_min_x).max(1.0);
+
+    let max_context_width = (clicked_width * MAX_CONTEXT_WIDTH_MULTIPLIER).max(MIN_CONTEXT_WIDTH);
+
+    // =========================================================
+    // EXPAND LEFT
+    // =========================================================
 
     let mut left = clicked_position;
 
-    while left > 0 {
+    let mut left_words = 0usize;
+
+    while left > 0 && left_words < LEFT_CONTEXT_WORDS {
         let current_index = line[left];
         let previous_index = line[left - 1];
 
         let current = &ocr_boxes[current_index];
         let previous = &ocr_boxes[previous_index];
 
-        // A sentence-ending punctuation before the clicked word
-        // means the previous sentence is finished.
+        // Предыдущий OCR box завершает предложение.
         if ends_sentence(previous.text.trim()) {
             break;
         }
 
-        // Large horizontal gap means a separate visual text block.
+        // Большой горизонтальный разрыв = другой блок.
         if is_large_horizontal_gap(previous, current) {
             break;
         }
 
+        // Проверяем общую ширину будущего контекста.
+        let candidate_left = previous.bounding_rect().0;
+
+        let candidate_width = clicked_max_x - candidate_left;
+
+        if candidate_width > max_context_width {
+            break;
+        }
+
         left -= 1;
+        left_words += 1;
     }
 
-    // ------------------------------------------------------------
-    // Expand right.
-    // ------------------------------------------------------------
+    // =========================================================
+    // EXPAND RIGHT
+    // =========================================================
 
     let mut right = clicked_position;
 
-    while right + 1 < line.len() {
+    let mut right_words = 0usize;
+
+    while right + 1 < line.len() && right_words < RIGHT_CONTEXT_WORDS {
         let current_index = line[right];
         let next_index = line[right + 1];
 
         let current = &ocr_boxes[current_index];
         let next = &ocr_boxes[next_index];
 
-        // Add the next box first.
-        right += 1;
-
-        // If this next OCR box ends a sentence,
-        // this is where we stop.
-        if ends_sentence(next.text.trim()) {
+        // Большой горизонтальный разрыв = другой блок.
+        if is_large_horizontal_gap(current, next) {
             break;
         }
 
-        // Large visual gap means separate text block.
-        if is_large_horizontal_gap(current, next) {
+        let candidate_right = next.bounding_rect().2;
+
+        let candidate_width = candidate_right - clicked_min_x;
+
+        if candidate_width > max_context_width {
+            break;
+        }
+
+        right += 1;
+        right_words += 1;
+
+        // После добавления box проверяем конец предложения.
+        if ends_sentence(next.text.trim()) {
             break;
         }
     }
 
-    // ------------------------------------------------------------
-    // Build final context.
-    // ------------------------------------------------------------
+    // =========================================================
+    // BUILD FINAL CONTEXT
+    // =========================================================
 
     let mut parts = Vec::new();
 
@@ -410,24 +450,16 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
 
     println!("Context built from {} OCR boxes", parts.len());
 
+    println!(
+        "Context limits: left={}, right={}, max_width={:.1}px",
+        LEFT_CONTEXT_WORDS, RIGHT_CONTEXT_WORDS, max_context_width
+    );
+
     context
 }
 
 // ============================================================================
 // SAME VISUAL LINE
-// ============================================================================
-//
-// Returns ORIGINAL OCR indexes.
-//
-// This is intentional:
-//
-// Vec<usize>
-//
-// instead of:
-//
-// Vec<(usize, &OcrBox)>
-//
-// Therefore there is no lifetime problem.
 // ============================================================================
 
 fn collect_same_visual_line(ocr_boxes: &[OcrBox], clicked_index: usize) -> Vec<usize> {
@@ -443,10 +475,11 @@ fn collect_same_visual_line(ocr_boxes: &[OcrBox], clicked_index: usize) -> Vec<u
 
     let clicked_center_y = (clicked_min_y + clicked_max_y) / 2.0;
 
-    // OCR boxes can have slightly different heights.
+    // Было 0.65.
     //
-    // The tolerance is based primarily on clicked text height.
-    let tolerance = (clicked_height * 0.65).max(8.0);
+    // Немного уменьшаем tolerance, чтобы соседние строки
+    // не слипались в одну "визуальную строку".
+    let tolerance = (clicked_height * 0.45).max(6.0);
 
     let mut indexes = Vec::new();
 
@@ -494,28 +527,14 @@ fn same_visual_line(
 // ============================================================================
 // HORIZONTAL GAP
 // ============================================================================
-//
-// OCR normally does not return spaces as separate boxes.
-//
-// Therefore a "space" is represented by the horizontal distance
-// between the previous box and the next box.
-//
-// We use text height as the scale so this works with different
-// font sizes / resolutions.
-// ============================================================================
 
 fn is_large_horizontal_gap(left: &OcrBox, right: &OcrBox) -> bool {
-    let (left_min_x, left_min_y, left_max_x, left_max_y) = left.bounding_rect();
+    let (_left_min_x, left_min_y, left_max_x, left_max_y) = left.bounding_rect();
 
-    let (right_min_x, right_min_y, right_max_x, right_max_y) = right.bounding_rect();
-
-    let _ = left_min_x;
-    let _ = right_max_x;
+    let (right_min_x, right_min_y, _right_max_x, right_max_y) = right.bounding_rect();
 
     let gap = right_min_x - left_max_x;
 
-    // If boxes overlap, they are definitely not separated
-    // by a large text gap.
     if gap <= 0.0 {
         return false;
     }
@@ -526,28 +545,17 @@ fn is_large_horizontal_gap(left: &OcrBox, right: &OcrBox) -> bool {
 
     let text_height = left_height.max(right_height).max(1.0);
 
-    // A normal word-space is usually relatively small.
+    // Было 1.5.
     //
-    // A gap around >= 1.5 text-heights is treated as a
-    // separate visual block.
-    //
-    // This number can be tuned later if necessary.
-    let threshold = text_height * 1.5;
+    // Для ограничения контекста лучше чуть раньше
+    // считать большой gap границей блока.
+    let threshold = text_height * 1.25;
 
     gap >= threshold
 }
 
 // ============================================================================
 // OCR TEXT JOINING
-// ============================================================================
-//
-// OCR boxes sometimes already contain punctuation such as:
-//
-// "hello"
-// "world."
-//
-// We don't need sophisticated language processing here.
-// We simply preserve OCR text and put normal spaces between boxes.
 // ============================================================================
 
 fn join_ocr_text(parts: &[&str]) -> String {
@@ -561,12 +569,6 @@ fn join_ocr_text(parts: &[&str]) -> String {
 
 // ============================================================================
 // SENTENCE END
-// ============================================================================
-//
-// Only punctuation defines a sentence boundary.
-//
-// No English-word blacklist.
-// No UI-word blacklist.
 // ============================================================================
 
 fn ends_sentence(text: &str) -> bool {

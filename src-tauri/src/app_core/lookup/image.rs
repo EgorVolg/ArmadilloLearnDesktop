@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct Image {
     pub width: u32,
     pub height: u32,
@@ -151,4 +152,89 @@ pub fn encode_png(image: &Image) -> Result<Vec<u8>, String> {
         .map_err(|error| format!("Failed to encode PNG: {error}"))?;
 
     Ok(output)
+}
+
+pub fn crop_around_bbox(source: &Image, bbox: (f32, f32, f32, f32)) -> Image {
+    // Context around the OCR box.
+    const PADDING_X: u32 = 60;
+    const PADDING_Y: u32 = 40;
+
+    // Prevent sending an unnecessarily large image to the AI.
+    const MAX_WIDTH: u32 = 420;
+    const MAX_HEIGHT: u32 = 180;
+
+    let source_width = source.width;
+    let source_height = source.height;
+
+    let (x1, y1, x2, y2) = bbox;
+
+    // Normalize and clamp bbox to the source image.
+    let left = x1.min(x2).max(0.0).floor() as u32;
+    let top = y1.min(y2).max(0.0).floor() as u32;
+
+    let right = x1.max(x2).min(source_width as f32).ceil() as u32;
+
+    let bottom = y1.max(y2).min(source_height as f32).ceil() as u32;
+
+    if right <= left || bottom <= top {
+        return source.clone();
+    }
+
+    let bbox_width = right - left;
+    let bbox_height = bottom - top;
+
+    // Add context around the OCR bbox.
+    let crop_width = bbox_width
+        .saturating_add(PADDING_X * 2)
+        .min(MAX_WIDTH)
+        .min(source_width);
+
+    let crop_height = bbox_height
+        .saturating_add(PADDING_Y * 2)
+        .min(MAX_HEIGHT)
+        .min(source_height);
+
+    // Center crop around the OCR bbox.
+    let bbox_center_x = left + bbox_width / 2;
+    let bbox_center_y = top + bbox_height / 2;
+
+    let mut source_left = bbox_center_x.saturating_sub(crop_width / 2);
+
+    let mut source_top = bbox_center_y.saturating_sub(crop_height / 2);
+
+    // Keep crop inside the screenshot.
+    if source_left + crop_width > source_width {
+        source_left = source_width.saturating_sub(crop_width);
+    }
+
+    if source_top + crop_height > source_height {
+        source_top = source_height.saturating_sub(crop_height);
+    }
+
+    let mut result = Image {
+        width: crop_width,
+        height: crop_height,
+        data: vec![0; (crop_width as usize) * (crop_height as usize) * 3],
+    };
+
+    for dst_y in 0..crop_height {
+        for dst_x in 0..crop_width {
+            let src_x = source_left + dst_x;
+            let src_y = source_top + dst_y;
+
+            if src_x >= source_width || src_y >= source_height {
+                continue;
+            }
+
+            let src_index = ((src_y as usize) * (source_width as usize) + (src_x as usize)) * 3;
+
+            let dst_index = ((dst_y as usize) * (crop_width as usize) + (dst_x as usize)) * 3;
+
+            result.data[dst_index] = source.data[src_index];
+            result.data[dst_index + 1] = source.data[src_index + 1];
+            result.data[dst_index + 2] = source.data[src_index + 2];
+        }
+    }
+
+    result
 }
