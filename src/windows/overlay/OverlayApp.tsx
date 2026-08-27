@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import "./OverlayApp.css";
-import { Bookmark, BookmarkCheck } from "../../assets/Bookmark";
 import flag from "../../assets/Flag_of_Russia.png";
 import { LookupError, TranslationDataType } from "../../shared";
 import { listen } from "@tauri-apps/api/event";
+import { Bookmark, BookmarkCheck, Language, Translate } from "../../assets";
 
 export const OverlayApp = () => {
   const [check, setCheck] = useState(false);
@@ -20,38 +20,40 @@ export const OverlayApp = () => {
   });
 
   const renderSentenceWithHighlight = () => {
-    const target = translationData.word.toLowerCase();
+    const target = translationData.word_translation.toLowerCase();
     let highlighted = false;
 
-    return translationData.sentence.split(/(\s+)/).map((part, index) => {
-      const core = part.match(/[\p{L}\p{N}]+/u)?.[0] ?? "";
+    return translationData.sentence_translation
+      .split(/(\s+)/)
+      .map((part, index) => {
+        const core = part.match(/[\p{L}\p{N}]+/u)?.[0] ?? "";
 
-      if (!highlighted && core !== "" && core.toLowerCase() === target) {
-        highlighted = true;
-        const coreIndex = part.indexOf(core);
+        if (!highlighted && core !== "" && core.toLowerCase() === target) {
+          highlighted = true;
+          const coreIndex = part.indexOf(core);
 
-        return (
-          <span key={index}>
-            {part.slice(0, coreIndex)}
-            <span
-              style={{
-                backgroundColor: "rgb(255, 221, 0)",
-                color: "black",
-                padding: "0 2px",
-                borderRadius: "4px",
-                fontWeight: "bold",
-                fontSize: "18px",
-              }}
-            >
-              {core}
+          return (
+            <span key={index}>
+              {part.slice(0, coreIndex)}
+              <span
+                style={{
+                  backgroundColor: "rgb(255, 221, 0)",
+                  color: "black",
+                  padding: "0 4px",
+                  borderRadius: "5px",
+                  fontWeight: "bold",
+                  fontSize: "14px",
+                }}
+              >
+                {core}
+              </span>
+              {part.slice(coreIndex + core.length)}
             </span>
-            {part.slice(coreIndex + core.length)}
-          </span>
-        );
-      }
+          );
+        }
 
-      return <span key={index}>{part}</span>;
-    });
+        return <span key={index}>{part}</span>;
+      });
   };
 
   useEffect(() => {
@@ -125,37 +127,37 @@ export const OverlayApp = () => {
           </article>
         ) : (
           <>
-            <article>
-              <div className="container-header">
-                <h1>Слово</h1>
+            <article className="article translation">
+              <aside className="container-header">
+                <h1>Перевод</h1>
+                <Translate width={18} height={18} />
                 <hr />
-              </div>
+              </aside>
               <section className="word">
                 {renderSentenceWithHighlight()}
               </section>
             </article>
 
-            <article className="translation-article">
-              <section className="container-header">
-                <h1>Перевод</h1>
+            <article className="article originaly">
+              <aside className="container-header">
+                <h1>Слово</h1>
+                <Language width={18} height={18} />
                 <hr />
-              </section>
-
+              </aside>
               <section className="word">
-                <img src={flag} alt="russian language" />
+                <img className="lang-img" src={flag} alt="russian language" />
                 {translationData.word_translation}
               </section>
-            </article>
 
-            <article className="translation-content">
               <section className="tags">
                 <span>{translationData.part_of_speech}</span>
                 <span>{translationData.topic}</span>
               </section>
 
               <section className="definition">
-                {translationData.sentence_translation}
+                {translationData.sentence}
               </section>
+
               {translationData.synonyms.length > 0 && (
                 <section className="synonyms">
                   Synonyms:
