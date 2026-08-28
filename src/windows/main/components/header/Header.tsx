@@ -1,5 +1,5 @@
 import Logo from "../../../../assets/Logo.png";
-import Switcher from "../../../../assets/potted-plant-icon.png";
+import { PottedPlant } from "../../../../assets";
 import "./Header.css";
 
 export interface HeaderNavItem {
@@ -41,11 +41,7 @@ export const Header = ({
     <article className="main-app__header">
       <nav className="main-app__header-nav">
         <div className="main-app__header-logo">
-          <img
-            src={Logo}
-            alt="logo"
-            className="main-app__header-logo-image"
-          />
+          <img src={Logo} alt="logo" className="main-app__header-logo-image" />
           <h3 className="main-app__header-logo-text">Armadillo Learn</h3>
         </div>
 
@@ -67,11 +63,7 @@ export const Header = ({
           className="main-app__header-nav-theme-switcher-button"
           onClick={onSwitchTheme}
         >
-          <img
-            src={Switcher}
-            alt="Theme switcher"
-            className="main-app__header-nav-theme-switcher-button-image"
-          />
+          <PottedPlant width={28} height={28} color="#d7b8a5" />
         </button>
       </nav>
     </article>

@@ -106,11 +106,5 @@
 }
 
 .main-app__header-nav-theme-switcher-button {
-  max-height: 34px;
-  max-width: 34px;
-}
-
-.main-app__header-nav-theme-switcher-button-image {
-  height: 100%;
-  max-height: fit-content;
+  cursor: pointer;
 }
