@@ -1,0 +1,24 @@
+:root,
+[data-theme="glass-light"] {
+  --bg-primary: #7b4a34;
+  --bg-header: #8a5d48;
+  --bg-secondary: #a86d54;
+  --bg-card: #b37e66;
+  --bg-select-button: #845641;
+  --bg-delete-button: #894c3a;
+  --radius: 12px;
+  --border: 1px solid #976e59;
+  --border-input: 1px solid #b27e66;
+  --color-text: #d7b8a5;
+
+  --color-text-active: #f5e4d8;
+}
+
+[data-theme="glass-dark"] {
+}
+
+[data-theme="light"] {
+}
+
+[data-theme="dark"] {
+}

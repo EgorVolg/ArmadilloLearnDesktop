@@ -16,6 +16,36 @@
   font-display: swap;
 }
 
+.font-regular {
+  font-family: "Nunito", sans-serif;
+  font-weight: 400;
+}
+
+.font-medium {
+  font-family: "Nunito", sans-serif;
+  font-weight: 500;
+}
+
+.font-semibold {
+  font-family: "Nunito", sans-serif;
+  font-weight: 600;
+}
+
+.font-bold {
+  font-family: "Nunito", sans-serif;
+  font-weight: 700;
+}
+
+.font-extrabold {
+  font-family: "Nunito", sans-serif;
+  font-weight: 800;
+}
+
+.font-black {
+  font-family: "Nunito", sans-serif;
+  font-weight: 900;
+}
+
 ::-webkit-scrollbar {
   display: none;
 }
