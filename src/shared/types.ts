@@ -12,3 +12,5 @@ export type LookupError = {
   code: string;
   message: string;
 };
+
+export type Theme = "dark" | "light" | "glass-light" | "glass-dark";

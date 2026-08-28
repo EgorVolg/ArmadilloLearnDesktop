@@ -4,6 +4,7 @@ import "./MainApp.css";
 import Logo from "../../assets/Logo.png";
 import Switcher from "../../assets/potted-plant-icon.png";
 import Test from "../../assets/test.png";
+import { setTheme, Theme } from "../../shared";
 
 const language = "EN";
 
@@ -150,10 +151,16 @@ const wordsData = [
 
 export const MainApp = () => {
   const [selected, setSelected] = useState(false);
+  const [selectedTheme, setSelectedTheme] = useState<Theme>("light");
   const [openedLink, setOpenedLink] = useState(headerNavItems[0].id);
   const [value, setValue] = useState("");
   function openLink(id: number) {
     setOpenedLink(id);
+  }
+
+  function SwitchTheme() {
+    setSelectedTheme(selectedTheme === "light" ? "dark" : "light");
+    setTheme(selectedTheme);
   }
 
   return (
@@ -183,7 +190,10 @@ export const MainApp = () => {
             ))}
           </ul>
 
-          <button className="main-app__header-nav-theme-switcher-button">
+          <button
+            className="main-app__header-nav-theme-switcher-button"
+            onClick={SwitchTheme}
+          >
             <img
               src={Switcher}
               alt="Theme switcher"
