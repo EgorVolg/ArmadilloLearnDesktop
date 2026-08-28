@@ -23,6 +23,7 @@ export const MainApp = () => {
   return (
     <div className="main-app">
       <Header
+        selectedTheme={selectedTheme}
         openedLink={openedLink}
         onOpenLink={openLink}
         onSwitchTheme={SwitchTheme}

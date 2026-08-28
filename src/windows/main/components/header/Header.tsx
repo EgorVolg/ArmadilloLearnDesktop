@@ -1,5 +1,8 @@
 import Logo from "../../../../assets/Logo.png";
-import { PottedPlant } from "../../../../assets";
+// import { PottedPlant } from "../../../../assets";
+import moon from "../../../../assets/Moon.png";
+import sun from "../../../../assets/Sun.png";
+import { Theme } from "../../../../shared";
 import "./Header.css";
 
 export interface HeaderNavItem {
@@ -30,13 +33,16 @@ interface HeaderProps {
   openedLink: number;
   onOpenLink: (id: number) => void;
   onSwitchTheme: () => void;
+  selectedTheme: Theme;
 }
 
 export const Header = ({
   openedLink,
   onOpenLink,
   onSwitchTheme,
+  selectedTheme,
 }: HeaderProps) => {
+  const src = selectedTheme === "light" ? moon : sun;
   return (
     <article className="main-app__header">
       <nav className="main-app__header-nav">
@@ -60,10 +66,16 @@ export const Header = ({
         </ul>
 
         <button
-          className="main-app__header-nav-theme-switcher-button"
+          className={`main-app__header-nav-theme-switcher-button ${
+            selectedTheme === "light" ? "dark" : "light"
+          }`}
           onClick={onSwitchTheme}
         >
-          <PottedPlant width={28} height={28} color="#d7b8a5" />
+          <img
+            src={src}
+            alt="Theme switcher"
+            className="main-app__header-nav-theme-switcher-button-image"
+          />
         </button>
       </nav>
     </article>
