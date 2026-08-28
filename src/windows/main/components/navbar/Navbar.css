@@ -1,0 +1,117 @@
+.main-app__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  @media (max-width: 760px) {
+    display: flexbox;
+    flex-wrap: wrap;
+  }
+}
+
+.main-app__nav-search {
+  display: flex;
+  align-items: center;
+  padding: 4px 0;
+  gap: 10px;
+
+  @media (max-width: 760px) {
+    justify-content: space-between;
+    width: 100%;
+  }
+}
+
+.main-app__nav-search-input_container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 50px;
+  width: 100%;
+}
+
+.main-app__nav-search input {
+  width: 330px;
+  max-height: 42px;
+  padding: 13px 14px;
+  background-color: var(--bg-secondary);
+  border: var(--border-input);
+  border-radius: 9px;
+  color: var(--color-text);
+  font-family: Nunito;
+  font-weight: 700;
+
+  &::placeholder {
+    color: var(--color-text);
+    font-family: Nunito;
+    font-weight: 700;
+  }
+
+  @media (max-width: 760px) {
+    width: 100%;
+  }
+}
+
+.main-app__nav-search-input_btn {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  right: 4px;
+  cursor: pointer;
+}
+
+.main-app__nav-search-input_icon {
+  display: inline-flex;
+  align-items: center;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  right: 14px;
+}
+
+.main-app__nav-language-button {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 10px 13px;
+  border: var(--border);
+  border-radius: 9px;
+  background-color: var(--bg-select-button);
+  gap: 8px;
+  cursor: pointer;
+  font-family: Nunito;
+  font-weight: 800;
+  color: var(--color-text-active);
+}
+
+.main-app__nav-buttons {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.main-app__nav-select-all-button,
+.main-app__nav-delete-button {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 10px 14px;
+  cursor: pointer;
+  border-radius: 9px;
+  font-family: Nunito;
+  font-weight: 800;
+  color: var(--color-text-active);
+}
+
+.main-app__nav-select-all-button {
+  background-color: var(--bg-select-button);
+}
+
+.main-app__nav-delete-button {
+  background-color: var(--bg-delete-button);
+  gap: 7px;
+}

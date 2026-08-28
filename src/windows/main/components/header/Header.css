@@ -1,0 +1,116 @@
+.main-app__header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--bg-header);
+  opacity: var(--bg-header-opacity);
+  border-radius: var(--radius);
+  border: var(--border);
+  padding: 12px 18px;
+
+  @media (max-width: 760px) {
+    padding: 8px 12px;
+  }
+}
+
+.main-app__header-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 34px;
+
+  @media (max-width: 760px) {
+    gap: 10px;
+  }
+}
+
+.main-app__header-logo {
+  display: flex;
+  max-height: 34px;
+  align-items: center;
+  gap: 10px;
+}
+
+.main-app__header-logo-image {
+  width: 100%;
+  max-width: 34px;
+  border-radius: 10px;
+  color: white;
+}
+
+.main-app__header-logo-text {
+  width: min-content;
+  overflow-wrap: break-word;
+  line-height: 0.75;
+  color: white;
+  font-family: Nunito;
+  font-weight: 900;
+
+  @media (max-width: 760px) {
+    display: none;
+    font-size: 12px;
+  }
+}
+
+.main-app__header-nav-list {
+  display: inline-flex;
+  justify-content: space-around;
+  width: max-content;
+  gap: 26px;
+
+  @media (max-width: 760px) {
+    gap: 15px;
+  }
+}
+
+.main-app__header-nav-link {
+  font-family: Nunito;
+  font-size: 16px;
+  font-weight: 700;
+  text-wrap: nowrap;
+
+  @media (max-width: 760px) {
+    font-size: 12px;
+  }
+}
+
+.main-app__header-nav-item {
+  position: relative;
+  color: var(--color-text);
+  transition: color 0.3s ease-in-out;
+}
+
+.main-app__header-nav-item::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  width: 100%;
+  height: 1px;
+  background: currentColor;
+
+  transform: scaleX(0);
+  transition: transform 0.45s ease-in-out;
+}
+
+.main-app__header-nav-item:hover,
+.main-app__header-nav-item-active {
+  color: var(--color-text-active);
+}
+
+.main-app__header-nav-item:hover::after,
+.main-app__header-nav-item-active::after {
+  transform: scaleX(1);
+}
+
+.main-app__header-nav-theme-switcher-button {
+  max-height: 34px;
+  max-width: 34px;
+}
+
+.main-app__header-nav-theme-switcher-button-image {
+  height: 100%;
+  max-height: fit-content;
+}
