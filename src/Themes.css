@@ -1,16 +1,32 @@
+/* =========================================================
+   BASE / EXISTING THEMES
+   ========================================================= */
+
 :root,
 [data-theme="dark"] {
   --bg-primary: #2d1f1a;
   --bg-header: #3c2f29;
   --bg-secondary: #35231e;
   --bg-card: #493631;
+  --bg-card-hover: #544038;
+
   --bg-select-button: #3c2f29;
   --bg-delete-button: #482824;
+
   --radius: 12px;
+
   --border: 1px solid #53453e;
   --border-input: 1px solid #513e38;
+
   --color-text: #d4c5b8;
   --color-text-active: #f5e4d8;
+  --color-divider: #53453e;
+
+  /* Glass disabled */
+  --glass-blur: none;
+  --glass-saturate: none;
+  --glass-shadow: none;
+  --glass-highlight: none;
 }
 
 [data-theme="light"] {
@@ -18,17 +34,93 @@
   --bg-header: #8a5d48;
   --bg-secondary: #a86d54;
   --bg-card: #b37e66;
+  --bg-card-hover: #c08b72;
+
   --bg-select-button: #845641;
   --bg-delete-button: #894c3a;
+
   --radius: 12px;
+
   --border: 1px solid #976e59;
   --border-input: 1px solid #b27e66;
+
   --color-text: #d7b8a5;
   --color-text-active: #f5e4d8;
+  --color-divider: #976e59;
+
+  /* Glass disabled */
+  --glass-blur: none;
+  --glass-saturate: none;
+  --glass-shadow: none;
+  --glass-highlight: none;
 }
 
 [data-theme="glass-light"] {
+  --bg-primary: linear-gradient(315deg, #c874a2 0%, #a94aba 50%, #81dad6 100%);
+
+  --bg-header: rgba(255, 255, 255, 0.16);
+  --bg-secondary: rgba(255, 255, 255, 0.12);
+  --bg-card: rgba(255, 255, 255, 0.18);
+  --bg-card-hover: rgba(255, 255, 255, 0.28);
+
+  --bg-select-button: rgba(169, 74, 186, 0.32);
+  --bg-delete-button: rgba(200, 116, 162, 0.3);
+
+  --radius: 12px;
+
+  --border: 1px solid rgba(255, 255, 255, 0.28);
+  --border-input: 1px solid rgba(255, 255, 255, 0.35);
+
+  --color-text: rgba(255, 255, 255, 0.88);
+  --color-text-active: #ffffff;
+  --color-divider: rgba(255, 255, 255, 0.24);
+
+  /* Liquid Glass */
+  --glass-blur: blur(20px);
+  --glass-saturate: saturate(125%);
+
+  --glass-shadow:
+    0 8px 32px rgba(70, 35, 88, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 [data-theme="glass-dark"] {
+  --bg-primary: linear-gradient(315deg, #241528 0%, #452157 50%, #163f42 100%);
+
+  --bg-header: rgba(24, 18, 35, 0.48);
+  --bg-secondary: rgba(20, 18, 30, 0.32);
+  --bg-card: transparent;
+  --bg-card-hover: rgba(255, 255, 255, 0.14);
+  --bg-article-content: #45215781;
+  --bg-select-button: rgba(183, 50, 209, 0.22);
+  --bg-delete-button: rgba(209, 107, 165, 0.18);
+
+  --radius: 12px;
+
+  --border: none;
+  --border-input: none;
+
+  --color-text: rgba(255, 255, 255, 0.72);
+  --color-text-active: #ffffff;
+  --color-divider: rgba(255, 255, 255, 0.14);
+
+  --glass-blur: blur(22px);
+  --glass-saturate: saturate(135%);
+
+  --glass-shadow:
+    0 5px 5px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+
+  --glass-highlight: inset 0 3px 0 rgba(255, 255, 255, 0.12);
 }
+/* [data-theme="glass-dark"] .main-app__header:hover,
+[data-theme="glass-dark"] .main-app__sidebar-item:hover,
+[data-theme="glass-dark"] .main-app__nav-search input,
+[data-theme="glass-dark"] .main-app__nav-language-button,
+[data-theme="glass-dark"] .main-app__nav-select-all-button:hover,
+[data-theme="glass-dark"] .main-app__nav-delete-button:hover,
+[data-theme="glass-dark"] .main-app__header-nav-theme-switcher-button:hover {
+  backdrop-filter: blur(45px) saturate(180%) contrast(105%);
+
+  -webkit-backdrop-filter: blur(45px) saturate(180%) contrast(105%);
+} */

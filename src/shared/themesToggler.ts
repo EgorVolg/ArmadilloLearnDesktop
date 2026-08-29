@@ -3,7 +3,7 @@ import { Theme } from "./types";
 export const themes: Theme[] = ["dark", "light", "glass-light", "glass-dark"];
 
 export function setTheme(theme: Theme): void {
-  document.documentElement.setAttribute("data-theme", theme);
+  document.documentElement.setAttribute("data-theme", "glass-dark");
 }
 
 export function toggleTheme(): void {

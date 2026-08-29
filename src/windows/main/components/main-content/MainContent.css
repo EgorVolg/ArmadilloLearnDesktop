@@ -1,13 +1,16 @@
+/* =========================================================
+   MAIN CONTENT
+   ========================================================= */
+
 .main-app__main {
   display: grid;
   grid-template-columns: minmax(240px, 32vw) minmax(0, 1fr);
-
   height: 100%;
   min-height: 0;
 
   border-radius: 18px;
   border: var(--border);
-  background-color: var(--bg-secondary);
+  background: var(--bg-secondary);
 
   overflow: hidden;
 
@@ -16,16 +19,22 @@
   }
 }
 
+/* =========================================================
+   SIDEBAR
+   ========================================================= */
+
 .main-app__sidebar {
   display: flex;
   flex-direction: column;
   gap: 18px;
   padding: 28px 20px;
+
   min-width: 0;
   min-height: 0;
 
   overflow-y: auto;
   overflow-x: hidden;
+
   scrollbar-gutter: stable;
   scroll-behavior: smooth;
   scroll-snap-type: mandatory;
@@ -63,26 +72,51 @@
 .main-app__sidebar-item {
   display: flex;
   align-items: center;
+
   width: 100%;
   max-width: 450px;
+
   padding: 15px;
-  border-radius: 10px;
-  background: var(--bg-card);
   gap: 12px;
+
+  border-radius: 10px;
+  border: var(--border);
+
+  background: var(--bg-card);
+
+  backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur) var(--glass-saturate);
+
+  box-shadow: var(--glass-shadow);
+
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition:
+    background 0.3s ease,
+    box-shadow 0.3s ease,
+    transform 0.3s ease;
 
   &:hover {
-    background-color: var(--bg-card-hover, rgba(0, 0, 0, 0.05));
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    background: var(--bg-card-hover);
+
+    box-shadow:
+      0 4px 12px rgba(0, 0, 0, 0.1),
+      var(--glass-highlight);
+
+    transform: translateY(-1px);
   }
 }
 
 .main-app__sidebar-item-checkbox {
   width: 10px;
   height: 10px;
+
+  flex: 0 0 auto;
+
   border-radius: 25px;
+
   background: #00ff04;
+
+  box-shadow: 0 0 8px rgba(0, 255, 4, 0.45);
 }
 
 .main-app__sidebar-item-content {
@@ -125,6 +159,10 @@
   color: var(--color-text);
 }
 
+/* =========================================================
+   ARTICLE
+   ========================================================= */
+
 .main-app__article {
   display: flex;
   flex-direction: column;
@@ -134,8 +172,13 @@
   min-height: 0;
 
   overflow-y: auto;
+
   gap: 25px;
-  background-color: var(--bg-primary);
+
+  backdrop-filter: blur(17px);
+  box-shadow: var(--glass-shadow);
+  background: var(--bg-article-content);
+
   border-radius: 18px;
   margin: 44px;
   padding: 0 40px;
@@ -167,7 +210,10 @@
 .main-app__article-section-hr {
   width: 100%;
   height: 1px;
-  color: var(--bg-secondary);
+
+  border: 0;
+
+  background: var(--color-divider);
 }
 
 .main-app__article-section-subtitle {
@@ -188,6 +234,8 @@
   max-width: 760px;
   width: 100%;
   height: auto;
+
+  border-radius: 12px;
 }
 
 .main-app__article-section-content-translations {

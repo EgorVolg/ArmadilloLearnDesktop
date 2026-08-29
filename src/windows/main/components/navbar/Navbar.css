@@ -1,3 +1,7 @@
+/* =========================================================
+   NAV / SEARCH / ACTIONS
+   ========================================================= */
+
 .main-app__nav {
   display: flex;
   align-items: center;
@@ -33,18 +37,43 @@
 .main-app__nav-search input {
   width: 330px;
   max-height: 42px;
+
   padding: 13px 14px;
-  background-color: var(--bg-secondary);
+
+  background: var(--bg-secondary);
+
   border: var(--border-input);
   border-radius: 9px;
+
   color: var(--color-text);
+
   font-family: Nunito;
   font-weight: 700;
 
+  /*
+    Glass only activates for glass themes.
+  */
+  backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur) var(--glass-saturate);
+
+  transition:
+    border-color 0.3s ease,
+    background 0.3s ease,
+    box-shadow 0.3s ease;
+
   &::placeholder {
     color: var(--color-text);
+
     font-family: Nunito;
     font-weight: 700;
+  }
+
+  &:focus {
+    outline: none;
+
+    box-shadow:
+      0 0 0 2px rgba(255, 255, 255, 0.08),
+      var(--glass-highlight);
   }
 
   @media (max-width: 760px) {
@@ -76,15 +105,35 @@
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
+
   padding: 10px 13px;
+
   border: var(--border);
   border-radius: 9px;
-  background-color: var(--bg-select-button);
+
+  background: var(--bg-select-button);
+
+  backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur) var(--glass-saturate);
+
   gap: 8px;
+
   cursor: pointer;
+
   font-family: Nunito;
   font-weight: 800;
+
   color: var(--color-text-active);
+
+  box-shadow: var(--glass-highlight);
+
+  transition:
+    background 0.3s ease,
+    transform 0.2s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+  }
 }
 
 .main-app__nav-buttons {
@@ -99,19 +148,39 @@
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
+
   padding: 10px 14px;
+
   cursor: pointer;
+
+  border: var(--border);
   border-radius: 9px;
+
   font-family: Nunito;
   font-weight: 800;
+
   color: var(--color-text-active);
+
+  backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur) var(--glass-saturate);
+
+  box-shadow: var(--glass-highlight);
+
+  transition:
+    background 0.3s ease,
+    transform 0.2s ease,
+    box-shadow 0.3s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+  }
 }
 
 .main-app__nav-select-all-button {
-  background-color: var(--bg-select-button);
+  background: var(--bg-select-button);
 }
 
 .main-app__nav-delete-button {
-  background-color: var(--bg-delete-button);
+  background: var(--bg-delete-button);
   gap: 7px;
 }

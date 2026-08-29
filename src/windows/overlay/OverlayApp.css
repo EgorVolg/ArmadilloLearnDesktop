@@ -4,7 +4,7 @@
   position: relative;
   -webkit-app-region: drag;
   height: 100vh;
-  background-color: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .bookmark {
@@ -12,7 +12,7 @@
   top: -7px;
   right: 20px;
   border: none;
-  background-color: transparent;
+  background: transparent;
   cursor: pointer;
   -webkit-app-region: no-drag;
 }
@@ -62,7 +62,7 @@ h1 {
 hr {
   border: none;
   height: 2px;
-  background-color: #ffb89d;
+  background: #ffb89d;
   width: 100%;
   border-radius: 10px;
 }

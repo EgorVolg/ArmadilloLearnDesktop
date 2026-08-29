@@ -1,12 +1,23 @@
+/* =========================================================
+   HEADER
+   ========================================================= */
+
 .main-app__header {
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  background-color: var(--bg-header);
-  opacity: var(--bg-header-opacity);
+
+  background: var(--bg-header);
+
+  backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur) var(--glass-saturate);
+
   border-radius: var(--radius);
   border: var(--border);
+
+  box-shadow: var(--glass-shadow);
+
   padding: 12px 18px;
 
   @media (max-width: 760px) {
@@ -37,14 +48,15 @@
   width: 100%;
   max-width: 34px;
   border-radius: 10px;
-  color: white;
 }
 
 .main-app__header-logo-text {
   width: min-content;
   overflow-wrap: break-word;
   line-height: 0.75;
-  color: white;
+
+  color: var(--color-text-active);
+
   font-family: Nunito;
   font-weight: 900;
 
@@ -92,6 +104,8 @@
   background: currentColor;
 
   transform: scaleX(0);
+  transform-origin: center;
+
   transition: transform 0.45s ease-in-out;
 }
 
@@ -106,22 +120,33 @@
 }
 
 .main-app__header-nav-theme-switcher-button {
+  max-height: 34px;
+  max-width: 34px;
+
   cursor: pointer;
-  height: 34px;
-  width: auto;
+
   padding: 5px;
+
+  border: var(--border);
   border-radius: var(--radius);
 
-  &.light {
-    background-color: var(--bg-delete-button);
-  }
+  background: var(--bg-select-button);
 
-  &.dark {
-    background-color: var(--color-text);
-  }
+  backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur) var(--glass-saturate);
 
-  img {
-    width: 100%;
-    height: 100%;
+  box-shadow: var(--glass-highlight);
+
+  transition:
+    background 0.3s ease,
+    transform 0.2s ease;
+
+  &:hover {
+    transform: translateY(-1px);
   }
+}
+
+.main-app__header-nav-theme-switcher-button-image {
+  height: 100%;
+  max-height: fit-content;
 }
