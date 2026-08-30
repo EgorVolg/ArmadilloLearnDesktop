@@ -123,8 +123,8 @@
   backdrop-filter: blur(17px);
   box-shadow: var(--glass-shadow);
   background: var(--bg-select-button);
-  opacity: 1;
-  transition: all 0.3s ease-in;
+  
+  
   transform-origin: top;
   transform: translateY(0) scaleY(1);
   opacity: 1;

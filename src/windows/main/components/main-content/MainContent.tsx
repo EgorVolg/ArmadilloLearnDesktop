@@ -174,16 +174,6 @@ export const MainContent = ({ selected }: MainContentProps) => {
       </aside>
 
       <article className="main-app__article">
-        <section
-          className={`${!showImage ? "none" : ""} main-app__article-section_content-img`}
-        >
-          <img
-            src={Test}
-            alt={wordsData[0].name}
-            className="main-app__article-section-image"
-          />
-        </section>
-        
         <section className="main-app__article-section">
           <h1 className="main-app__article-section-title">
             {wordsData[0].name}
@@ -216,6 +206,15 @@ export const MainContent = ({ selected }: MainContentProps) => {
             <p>Example</p>
             <span>She sent a thoughtful response the next morning</span>
           </div>
+        </section>
+        <section
+          className={`${!showImage ? "none" : ""} main-app__article-section_content-img`}
+        >
+          <img
+            src={Test}
+            alt={wordsData[0].name}
+            className="main-app__article-section-image"
+          />
         </section>
       </article>
     </main>
