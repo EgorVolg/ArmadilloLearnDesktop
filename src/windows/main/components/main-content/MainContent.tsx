@@ -183,9 +183,10 @@ export const MainContent = ({ selected }: MainContentProps) => {
             className="main-app__article-section-image"
           />
         </section>
+        
         <section className="main-app__article-section">
           <h1 className="main-app__article-section-title">
-            {wordsData[0].name}{" "}
+            {wordsData[0].name}
             <button
               onClick={() => setShowImage(!showImage)}
               className="main-app__article-section-title_arrow"
