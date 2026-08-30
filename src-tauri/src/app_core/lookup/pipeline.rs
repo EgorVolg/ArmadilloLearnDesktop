@@ -110,7 +110,7 @@ impl ClickPipeline {
         let captured = capture_screen(click_x, click_y)?;
 
         println!(
-            "Captured monitor: {}x{}, origin=({}, {})",
+            "Captured OCR region: {}x{}, origin=({}, {})",
             captured.image.width, captured.image.height, captured.origin_x, captured.origin_y
         );
 

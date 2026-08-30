@@ -1,11 +1,27 @@
 use anyhow::{Context, Result};
 
 use image::RgbImage;
-use rapidocr_core::{config::PipelineConfig, model::PPOCRV5_EN_MOBILE, RapidOcr};
+use rapidocr_core::{
+    config::{InferenceOptions, PipelineConfig},
+    model::PPOCRV5_EN_MOBILE,
+    types::OcrTimings,
+    RapidOcr,
+};
 
 use crate::app_core::lookup::image::Image;
 
 use super::types::{OcrBox, OcrPoint};
+
+/// Верхняя граница intra-op потоков ONNX Runtime.
+///
+/// rapidocr-core по умолчанию создаёт сессии с ОДНИМ потоком
+/// и выключенным memory arena (см. InferenceOptions::default()
+/// в rapidocr-core 0.2.2) — на многоядерном CPU инференс
+/// получается в разы медленнее возможного.
+///
+/// Больше 8 потоков для det-модели почти не даёт выигрыша,
+/// поэтому ограничиваем сверху и берём минимум с числом ядер.
+const OCR_INFERENCE_THREADS_CAP: usize = 8;
 
 pub struct OcrEngine {
     engine: RapidOcr,
@@ -15,9 +31,31 @@ impl OcrEngine {
     pub fn new(model_dir: impl Into<std::path::PathBuf>) -> Result<Self> {
         let model_dir = model_dir.into();
 
+        let intra_threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(OCR_INFERENCE_THREADS_CAP);
+
+        let inference = InferenceOptions {
+            intra_threads,
+            // Модели PP-OCR — одиночные графы без ветвлений,
+            // параллельный граф-исполнитель только добавляет
+            // накладные расходы.
+            inter_threads: 1,
+            parallel_execution: false,
+            enable_cpu_mem_arena: true,
+            execution_provider: Default::default(),
+        };
+
+        println!("OCR inference: intra_threads={intra_threads}, arena=on, pipeline=det+rec");
+
         let config = PPOCRV5_EN_MOBILE
             .config(model_dir)
-            .with_pipeline(PipelineConfig::full());
+            // Скриншоты всегда правильной ориентации: классификатор
+            // поворота текстовых строк не нужен и только тратит
+            // время на каждый кроп.
+            .with_pipeline(PipelineConfig::without_cls())
+            .with_inference_options(inference);
 
         let engine =
             RapidOcr::new(config).context("failed to initialize PP-OCRv5 English OCR engine")?;
@@ -32,14 +70,16 @@ impl OcrEngine {
     pub fn recognize(&mut self, image: &Image) -> Result<Vec<OcrBox>> {
         let rgb = image_to_rgb_image(image)?;
 
-        let result = self
+        let timed = self
             .engine
-            .run_image(&rgb)
+            .run_image_timed(&rgb)
             .context("PP-OCRv5 OCR inference failed")?;
+
+        log_ocr_timings(&timed.timings);
 
         let mut boxes = Vec::new();
 
-        for line in result.lines {
+        for line in timed.output.lines {
             let text = line.text.trim();
 
             if text.is_empty() {
@@ -51,6 +91,20 @@ impl OcrEngine {
 
         Ok(boxes)
     }
+}
+
+fn log_ocr_timings(timings: &OcrTimings) {
+    println!(
+        "OCR timings: total={:.0}ms | det prep={:.0} inf={:.0} post={:.0} | crop={:.0} | rec prep={:.0} inf={:.0} dec={:.0}",
+        timings.total_ms,
+        timings.det_preprocess_ms,
+        timings.det_inference_ms,
+        timings.det_postprocess_ms,
+        timings.crop_ms,
+        timings.rec_preprocess_ms,
+        timings.rec_inference_ms,
+        timings.rec_decode_ms,
+    );
 }
 
 /// Converts one line-level OCR result into word-level boxes.
@@ -230,4 +284,79 @@ fn image_to_rgb_image(image: &Image) -> Result<RgbImage> {
 
     RgbImage::from_raw(image.width, image.height, image.data.clone())
         .context("failed to construct RgbImage from captured screen")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn model_dir() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("app_core")
+            .join("ocr")
+            .join("ppocrv5-en")
+    }
+
+    /// Smoke-тест производительности OCR на изображении размера кропа.
+    ///
+    /// Запускается вручную (нужны ONNX-модели в src/app_core/ocr/ppocrv5-en):
+    ///
+    ///   cargo test -p armadillo-learn-desktop --release -- --ignored ocr_smoke --nocapture
+    ///
+    /// Debug-сборка сильно искажает препроцессинг — запускать только release.
+    #[test]
+    #[ignore]
+    fn ocr_smoke_test_region_performance() {
+        let mut engine = OcrEngine::new(model_dir()).expect("failed to init OCR engine");
+
+        // Синтетический "скриншот" размера OCR-кропа:
+        // белый фон и тёмные сегменты, похожие на строки текста.
+        let width = 1440u32;
+        let height = 900u32;
+
+        let mut data = vec![255u8; (width * height * 3) as usize];
+
+        for row in 0..height {
+            for column in 0..width {
+                let stripe = row % 120 < 24 && (column % 200) < 140;
+
+                if stripe {
+                    let index = ((row * width + column) * 3) as usize;
+
+                    data[index] = 30;
+                    data[index + 1] = 30;
+                    data[index + 2] = 30;
+                }
+            }
+        }
+
+        let image = Image {
+            width,
+            height,
+            data,
+        };
+
+        // Первый прогон — прогрев сессий ONNX Runtime.
+        let started = std::time::Instant::now();
+
+        let warmup = engine.recognize(&image).expect("warm-up OCR failed");
+
+        println!(
+            "Warm-up: {}ms, {} boxes",
+            started.elapsed().as_millis(),
+            warmup.len()
+        );
+
+        // Измерительный прогон.
+        let started = std::time::Instant::now();
+
+        let boxes = engine.recognize(&image).expect("measured OCR failed");
+
+        println!(
+            "Measured: {}ms, {} boxes",
+            started.elapsed().as_millis(),
+            boxes.len()
+        );
+    }
 }
