@@ -1,4 +1,4 @@
-import { Close, Language, Search, Trash } from "../../../../assets";
+import { Close, Language, Search } from "../../../../assets";
 import "./Navbar.css";
 
 const language = "EN";
@@ -42,13 +42,13 @@ export const Navbar = ({ value, onChange }: NavbarProps) => {
         </button>
       </div>
 
-      <div className="main-app__nav-buttons">
+      {/* <div className="main-app__nav-buttons">
         <button className="main-app__nav-select-all-button">Select All</button>
         <button className="main-app__nav-delete-button">
           <Trash width={17} height={17} color="#F5E4D8" />
           Delete
         </button>
-      </div>
+      </div> */}
     </nav>
   );
 };

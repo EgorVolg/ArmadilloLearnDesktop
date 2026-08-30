@@ -1,13 +1,12 @@
 import { useState } from "react";
 import "./MainApp.css";
-import { setTheme, Theme } from "../../shared";
 import { Header } from "./components/header/Header";
 import { Navbar } from "./components/navbar/Navbar";
 import { MainContent } from "./components/main-content/MainContent";
 
 export const MainApp = () => {
   const [selected] = useState(false);
-  const [selectedTheme, setSelectedTheme] = useState<Theme>("light");
+
   const [openedLink, setOpenedLink] = useState(1);
   const [value, setValue] = useState("");
 
@@ -15,19 +14,9 @@ export const MainApp = () => {
     setOpenedLink(id);
   }
 
-  function SwitchTheme() {
-    setSelectedTheme(selectedTheme === "light" ? "dark" : "light");
-    setTheme(selectedTheme);
-  }
-
   return (
     <div className="main-app">
-      <Header
-        selectedTheme={selectedTheme}
-        openedLink={openedLink}
-        onOpenLink={openLink}
-        onSwitchTheme={SwitchTheme}
-      />
+      <Header openedLink={openedLink} onOpenLink={openLink} />
       <Navbar value={value} onChange={setValue} />
       <MainContent selected={selected} />
     </div>

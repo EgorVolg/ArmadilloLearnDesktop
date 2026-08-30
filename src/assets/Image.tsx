@@ -1,13 +1,11 @@
-export const Close = ({
+export const Image = ({
   className,
   width = 34,
   height = 34,
-  color = "#DFC0AD",
 }: {
   className?: string;
   width?: number;
   height?: number;
-  color?: string;
 }) => {
   return (
     <svg
@@ -16,9 +14,9 @@ export const Close = ({
       height={height + "px"}
       viewBox="0 -960 960 960"
       width={width + "px"}
-      fill={color}
+      fill="#000"
     >
-      <path d="m336-280-56-56 144-144-144-143 56-56 144 144 143-144 56 56-144 143 144 144-56 56-143-144-144 144Z" />
+      <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm40-80h480L570-480 450-320l-90-120-120 160Zm-40 80v-560 560Z" />
     </svg>
   );
 };

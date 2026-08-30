@@ -1,0 +1,124 @@
+.main-app__header-nav-theme-switcher-container {
+  position: relative;
+  width: 34px;
+  height: 34px;
+
+  &:hover {
+    .main-app__header-nav-theme-switcher-button {
+      position: absolute;
+      z-index: 11;
+    }
+
+    .main-app__header-nav-theme-switcher-list {
+      visibility: visible;
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0) scale(1);
+
+      li {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+
+        &:nth-child(1) {
+          transition-delay: 0s;
+        }
+
+        &:nth-child(2) {
+          transition-delay: 0.025s;
+        }
+
+        &:nth-child(3) {
+          transition-delay: 0.05s;
+        }
+      }
+    }
+  }
+}
+
+.main-app__header-nav-theme-switcher-button {
+  max-height: 34px;
+  max-width: 34px;
+  cursor: pointer;
+  padding: 5px;
+  border: var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-select-button);
+  backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  box-shadow: var(--glass-highlight);
+
+  transition:
+    background 0.2s ease,
+    transform 0.15s ease;
+
+  &:hover {
+    transform: scale(1.04);
+  }
+}
+
+.main-app__header-nav-theme-switcher-list {
+  position: absolute;
+  flex-direction: column;
+  top: -7px;
+  right: -10px;
+  z-index: 10;
+
+  display: flex;
+  gap: 10px;
+
+  padding: 50px 10px 10px;
+  border-radius: 18px;
+  /* border: var(--border); */
+  background: var(--bg-header);
+
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+
+  transform: translateY(-6px) scale(0.97);
+  transform-origin: top right;
+
+  transition:
+    opacity 0.15s ease,
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 0.18s;
+
+  li {
+    display: flex;
+    width: 34px;
+    height: min-content;
+
+    opacity: 0;
+    transform: translateY(-5px) scale(0.96);
+
+    transition:
+      opacity 0.12s ease,
+      transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+.bbtn {
+  max-height: 34px;
+  max-width: 34px;
+  cursor: pointer;
+  padding: 5px;
+  border: var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-select-button);
+  backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  -webkit-backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  box-shadow: var(--glass-highlight);
+
+  transition:
+    background 0.15s ease,
+    transform 0.12s ease;
+
+  &:hover {
+    transform: scale(1.05);
+  }
+}
+
+.main-app__header-nav-theme-switcher-button-image {
+  height: 100%;
+  max-height: fit-content;
+}

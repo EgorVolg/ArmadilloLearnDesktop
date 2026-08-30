@@ -1,3 +1,21 @@
+ 
+/* =========================================================
+   MAIN APP
+   ========================================================= */
+
+.main-app {
+  display: flex;
+  flex-direction: column;
+
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+
+  overflow: hidden;
+}
+
+
 /* =========================================================
    MAIN CONTENT
    ========================================================= */
@@ -5,19 +23,53 @@
 .main-app__main {
   display: grid;
   grid-template-columns: minmax(240px, 32vw) minmax(0, 1fr);
+
+  width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 0;
 
   border-radius: 18px;
   border: var(--border);
   background: var(--bg-secondary);
 
+  padding-bottom: 28px;
+
+  /*
+   * В обычной высоте сам main не скроллится.
+   * Скроллы находятся у sidebar/article.
+   */
   overflow: hidden;
 
+  /*
+   * При маленькой высоте появляется дополнительный
+   * скролл именно у .main-app__main.
+   */
+  @media (max-height: 650px) {
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    /*
+     * Чтобы scrollbar не влиял на ширину grid.
+     */
+    scrollbar-gutter: stable;
+  }
+
   @media (max-width: 760px) {
-    grid-template-columns: minmax(150px, 32vw) minmax(0, 1fr);
+    grid-template-columns: 1fr;
+
+    padding-bottom: 0;
+
+    /*
+     * На мобильном main также может скроллиться
+     * при маленькой высоте.
+     */
+    @media (max-height: 650px) {
+      overflow-y: auto;
+    }
   }
 }
+
 
 /* =========================================================
    SIDEBAR
@@ -26,42 +78,115 @@
 .main-app__sidebar {
   display: flex;
   flex-direction: column;
+
   gap: 18px;
-  padding: 28px 20px;
 
   min-width: 0;
   min-height: 0;
 
+  border-right: var(--border);
+  padding: 28px 20px;
+
+  /*
+   * Sidebar имеет собственный scroll.
+   */
   overflow-y: auto;
   overflow-x: hidden;
 
   scrollbar-gutter: stable;
   scroll-behavior: smooth;
-  scroll-snap-type: mandatory;
+
+  /*
+   * Если используется scroll-snap,
+   * обязательно указываем ось.
+   *
+   * Можно удалить, если snap вообще не нужен.
+   */
+  scroll-snap-type: y proximity;
 
   @media (max-width: 850px) {
     padding: 14px 10px;
   }
+
+  @media (max-width: 760px) {
+    grid-row: 2;
+
+    /*
+     * На мобильном sidebar остаётся
+     * отдельным scroll-контейнером.
+     */
+    min-height: 0;
+
+    border-right: 0;
+  }
 }
+
+
+/* =========================================================
+   SIDEBAR LIST CONTAINER
+   ========================================================= */
 
 .main-app__sidebar-list-container {
   display: flex;
   flex-direction: column;
+
   gap: 18px;
+
+  min-width: 0;
+  min-height: 0;
+
+  @media (max-width: 760px) {
+    padding: 15px;
+
+    min-height: 0;
+
+    backdrop-filter: blur(17px);
+
+    box-shadow: var(--glass-shadow);
+    background: var(--bg-article-content);
+
+    /*
+     * Если контейнер сам должен скроллиться
+     * на мобильном.
+     */
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    scrollbar-gutter: stable;
+    scroll-behavior: smooth;
+    scroll-snap-type: y proximity;
+
+    border-radius: 18px;
+  }
 }
+
+
+/* =========================================================
+   SIDEBAR TITLE
+   ========================================================= */
 
 .main-app__sidebar-title {
   font-family: Nunito;
   font-size: 24px;
   font-weight: 700;
+
   color: var(--color-text-active);
 }
+
+
+/* =========================================================
+   SIDEBAR LIST
+   ========================================================= */
 
 .main-app__sidebar-list {
   display: flex;
   flex-direction: column;
+
   gap: 18px;
+
   margin: 0;
+
+  min-width: 0;
   min-height: 0;
 
   @media (max-width: 850px) {
@@ -69,14 +194,22 @@
   }
 }
 
+
+/* =========================================================
+   SIDEBAR ITEM
+   ========================================================= */
+
 .main-app__sidebar-item {
   display: flex;
   align-items: center;
 
   width: 100%;
-  max-width: 450px;
+  max-width: 32vw;
+
+  min-width: 0;
 
   padding: 15px;
+
   gap: 12px;
 
   border-radius: 10px;
@@ -84,12 +217,18 @@
 
   background: var(--bg-card);
 
-  backdrop-filter: var(--glass-blur) var(--glass-saturate);
-  -webkit-backdrop-filter: var(--glass-blur) var(--glass-saturate);
+  backdrop-filter:
+    var(--glass-blur)
+    var(--glass-saturate);
+
+  -webkit-backdrop-filter:
+    var(--glass-blur)
+    var(--glass-saturate);
 
   box-shadow: var(--glass-shadow);
 
   cursor: pointer;
+
   transition:
     background 0.3s ease,
     box-shadow 0.3s ease,
@@ -104,7 +243,16 @@
 
     transform: translateY(-1px);
   }
+
+  @media (max-width: 760px) {
+    max-width: none;
+  }
 }
+
+
+/* =========================================================
+   SIDEBAR ITEM CHECKBOX
+   ========================================================= */
 
 .main-app__sidebar-item-checkbox {
   width: 10px;
@@ -116,48 +264,87 @@
 
   background: #00ff04;
 
-  box-shadow: 0 0 8px rgba(0, 255, 4, 0.45);
+  box-shadow:
+    0 0 8px rgba(0, 255, 4, 0.45);
 }
+
+
+/* =========================================================
+   SIDEBAR ITEM CONTENT
+   ========================================================= */
 
 .main-app__sidebar-item-content {
   display: flex;
   flex-direction: column;
+
   justify-content: space-between;
+
   gap: 4px;
+
   min-width: 0;
+  max-width: 100%;
 }
 
+
+/* =========================================================
+   SIDEBAR ITEM TITLE
+   ========================================================= */
+
 .main-app__sidebar-item-content-title {
-  display: inline-flex;
+  display: flex;
+
+  min-width: 0;
+
+  overflow-wrap: break-word;
+  word-break: break-word;
+
   font-family: Nunito;
   font-weight: 800;
   font-size: 18px;
+
   color: var(--color-text-active);
 }
+
+
+/* =========================================================
+   SIDEBAR ITEM TAGS
+   ========================================================= */
 
 .main-app__sidebar-item-content-tags {
   display: block;
+
+  min-width: 0;
+  max-width: 100%;
+
   font-family: Nunito;
   font-weight: 600;
   font-size: 14px;
   line-height: 0.9;
+
   color: var(--color-text-active);
+
   white-space: nowrap;
+
   overflow: hidden;
   text-overflow: ellipsis;
-
-  max-width: 100%;
-  min-width: 0;
 }
+
+
+/* =========================================================
+   SIDEBAR ITEM TAG
+   ========================================================= */
 
 .main-app__sidebar-item-content-tags-tag {
   display: inline;
+
   font-family: Nunito;
   font-size: 14px;
   font-weight: 600;
   line-height: 0.9;
+
   color: var(--color-text);
 }
+
 
 /* =========================================================
    ARTICLE
@@ -166,85 +353,310 @@
 .main-app__article {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
+
+  /*
+   * КРИТИЧЕСКИ ВАЖНО ДЛЯ GRID/FLEX:
+   */
   min-width: 0;
   min-height: 0;
 
-  overflow-y: auto;
+  margin: 44px 22px;
 
-  gap: 25px;
+  gap: 20px;
+  padding: 30px;
 
   backdrop-filter: blur(17px);
+
   box-shadow: var(--glass-shadow);
+
   background: var(--bg-article-content);
 
   border-radius: 18px;
-  margin: 44px;
-  padding: 0 40px;
 
-  @media (max-width: 950px) {
-    padding: 0;
-    margin: 22px;
+  /*
+   * Article имеет собственный вертикальный scroll.
+   */
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  scrollbar-gutter: stable;
+
+  scroll-behavior: smooth;
+
+  /*
+   * Обязательно указываем ось.
+   */
+  scroll-snap-type: y proximity;
+
+  @media (max-width: 1200px) {
+    margin: 22px 11px;
+
+    column-gap: 25px;
+  }
+
+  @media (max-width: 760px) {
+    grid-row: 1;
+
+    /*
+     * На мобильном article растягивается
+     * по содержимому.
+     */
+    height: max-content;
+    max-height: none;
+
+    min-height: 0;
+
+    margin-bottom: 0;
+
+    padding: 15px;
+
+    /*
+     * Сохраняем твою логику:
+     * основной mobile article не является
+     * отдельным ограниченным scroll-контейнером.
+     */
+    overflow-y: visible;
+    overflow-x: hidden;
   }
 }
+
+
+/* =========================================================
+   ARTICLE SECTION
+   ========================================================= */
 
 .main-app__article-section {
   display: flex;
   flex-direction: column;
-  width: 100%;
-  gap: 10px;
-}
 
-.main-app__article-section-title {
-  font-family: Nunito;
-  font-size: 56px;
-  font-weight: 900;
-  color: var(--color-text-active);
+  justify-content: center;
+  align-items: center;
 
-  @media (max-width: 760px) {
-    font-size: 36px;
+  gap: 16px;
+
+  min-width: 0;
+  min-height: 0;
+
+  @media (max-width: 1200px) {
+    justify-content: flex-start;
+    align-items: flex-start;
+
+    gap: 8px;
   }
 }
+
+
+/* =========================================================
+   ARTICLE SECTION TITLE
+   ========================================================= */
+
+.main-app__article-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 100%;
+  min-width: 0;
+
+  gap: 10px;
+
+  font-family: Nunito;
+
+  font-size: clamp(
+    1rem,
+    calc(2.5vw + 0.5rem),
+    2rem
+  );
+
+  font-weight: 900;
+
+  color: var(--color-text-active);
+
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+
+/* =========================================================
+   ARTICLE SECTION TITLE ARROW
+   ========================================================= */
+
+.main-app__article-section-title_arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  flex: 0 0 auto;
+
+  border: var(--border);
+  border-radius: 2px;
+
+  cursor: pointer;
+}
+
+
+/* =========================================================
+   ARTICLE HR
+   ========================================================= */
 
 .main-app__article-section-hr {
   width: 100%;
   height: 1px;
+
+  flex: 0 0 auto;
 
   border: 0;
 
   background: var(--color-divider);
 }
 
+
+/* =========================================================
+   ARTICLE SUBTITLES
+   ========================================================= */
+
+.main-app__article-section-subtitles {
+  display: flex;
+  flex-wrap: wrap;
+
+  gap: 5px;
+
+  min-width: 0;
+}
+
+
+/* =========================================================
+   ARTICLE SUBTITLE
+   ========================================================= */
+
 .main-app__article-section-subtitle {
   font-family: Nunito;
-  font-size: 22px;
+
+  font-size: 18px;
   font-weight: 700;
+
   color: var(--color-text);
 
-  @media (max-width: 760px) {
+  overflow-wrap: break-word;
+  word-break: break-word;
+
+  @media (max-width: 1200px) {
     font-size: 16px;
   }
 }
 
-.main-app__article-section-content {
+
+/* =========================================================
+   ARTICLE IMAGE CONTENT
+   ========================================================= */
+
+.main-app__article-section_content-img {
+  width: 100%;
+  min-width: 0;
+
+  opacity: 1;
+
+  transition:
+    opacity 0.3s ease-in-out;
 }
 
+
+.main-app__article-section_content-img.none {
+  position: absolute;
+
+  top: -9999px;
+
+  opacity: 0;
+}
+
+
+/* =========================================================
+   ARTICLE IMAGE
+   ========================================================= */
+
 .main-app__article-section-image {
-  max-width: 760px;
+  display: block;
+
   width: 100%;
   height: auto;
 
   border-radius: 12px;
 }
 
+
+/* =========================================================
+   TRANSLATION
+   ========================================================= */
+
+.main-app__article-section_content-translation {
+  grid-column: 1 / -1;
+
+  display: flex;
+  flex-direction: column;
+
+  justify-content: space-around;
+
+  gap: 10px;
+
+  min-width: 0;
+}
+
+
+/* =========================================================
+   TRANSLATION TEXT
+   ========================================================= */
+
 .main-app__article-section-content-translations {
   font-family: Nunito;
+
   font-size: 16px;
   font-weight: 600;
+
   color: var(--color-text);
+
+  font-style: italic;
+
+  overflow-wrap: break-word;
+  word-break: break-word;
 
   @media (max-width: 760px) {
     font-size: 10px;
   }
 }
+
+
+/* =========================================================
+   TRANSLATION EXAMPLE
+   ========================================================= */
+
+.main-app__article-section-content-translations-example {
+  min-width: 0;
+
+  background: var(--bg-header);
+
+  padding: 16px;
+
+  border-radius: 12px;
+
+  p {
+    color: #7daa58;
+
+    text-transform: uppercase;
+
+    font-family: Nunito;
+    font-weight: 800;
+    font-size: 12px;
+  }
+
+  span {
+    font-family: Nunito;
+
+    font-weight: 600;
+    font-size: 16px;
+
+    color: var(--color-text-active);
+
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+} 

@@ -22,6 +22,13 @@
   flex-direction: column;
   gap: 10px;
   padding: 16px 20px;
+
+  section {
+    display: flex;
+    align-items: center;
+    justify-content: start;
+    margin-left: 10px;
+  }
 }
 
 .container-header {
@@ -44,13 +51,6 @@ article {
     height: 50vh;
     gap: 5px;
   }
-}
-
-section {
-  display: flex;
-  align-items: center;
-  justify-content: start;
-  margin-left: 10px;
 }
 
 h1 {

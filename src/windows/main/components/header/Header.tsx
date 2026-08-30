@@ -1,8 +1,6 @@
 import Logo from "../../../../assets/Logo.png";
-// import { PottedPlant } from "../../../../assets";
-import moon from "../../../../assets/Moon.png";
-import sun from "../../../../assets/Sun.png";
-import { Theme } from "../../../../shared";
+
+import { ChooseThemeBtn } from "./ChooseThemeBtn";
 import "./Header.css";
 
 export interface HeaderNavItem {
@@ -32,17 +30,9 @@ const headerNavItems: HeaderNavItem[] = [
 interface HeaderProps {
   openedLink: number;
   onOpenLink: (id: number) => void;
-  onSwitchTheme: () => void;
-  selectedTheme: Theme;
 }
 
-export const Header = ({
-  openedLink,
-  onOpenLink,
-  onSwitchTheme,
-  selectedTheme,
-}: HeaderProps) => {
-  const src = selectedTheme === "light" ? moon : sun;
+export const Header = ({ openedLink, onOpenLink }: HeaderProps) => {
   return (
     <article className="main-app__header">
       <nav className="main-app__header-nav">
@@ -64,19 +54,7 @@ export const Header = ({
             </li>
           ))}
         </ul>
-
-        <button
-          className={`main-app__header-nav-theme-switcher-button ${
-            selectedTheme === "light" ? "dark" : "light"
-          }`}
-          onClick={onSwitchTheme}
-        >
-          <img
-            src={src}
-            alt="Theme switcher"
-            className="main-app__header-nav-theme-switcher-button-image"
-          />
-        </button>
+        <ChooseThemeBtn />
       </nav>
     </article>
   );

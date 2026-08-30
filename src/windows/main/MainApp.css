@@ -10,9 +10,14 @@
   background: var(--bg-primary);
   gap: 20px;
   overflow: hidden;
-  height: 100vh; 
+  height: 100vh;
+
+  @media (max-width: 1200px) {
+    padding: 20px 20px 36px;
+  }
 
   @media (max-width: 760px) {
-    padding: 20px 20px 76px;
+    padding: 10px;
+    gap: 5px;
   }
 }

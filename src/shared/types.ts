@@ -13,4 +13,11 @@ export type LookupError = {
   message: string;
 };
 
-export type Theme = "dark" | "light" | "glass-light" | "glass-dark";
+type ThemeName = "dark" | "light" | "glass-light" | "glass-dark";
+
+type ThemeValues = `${ThemeName}`;
+
+export interface Theme {
+  name: ThemeValues;
+  ico: string;
+}

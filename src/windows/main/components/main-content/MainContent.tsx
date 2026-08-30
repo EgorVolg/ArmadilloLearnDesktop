@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { ArrowDropDown, ArrowDropUp, Image } from "../../../../assets";
 import Test from "../../../../assets/test.png";
 import "./MainContent.css";
 
@@ -12,7 +14,7 @@ export interface Word {
 const wordsData: Word[] = [
   {
     id: 0,
-    name: "Word 1",
+    name: "Armadillo",
     image: "https://via.placeholder.com/150",
     translations: ["Translation 1", "Translation 1", "Translation 1"],
     description:
@@ -20,7 +22,7 @@ const wordsData: Word[] = [
   },
   {
     id: 1,
-    name: "Word 1",
+    name: "Recusandae",
     image: "https://via.placeholder.com/150",
     translations: ["Translation 1", "Translation 1", "Translation 1"],
     description:
@@ -137,6 +139,8 @@ interface MainContentProps {
 }
 
 export const MainContent = ({ selected }: MainContentProps) => {
+  const [showImage, setShowImage] = useState(false);
+
   return (
     <main className="main-app__main">
       <aside className="main-app__sidebar">
@@ -158,16 +162,9 @@ export const MainContent = ({ selected }: MainContentProps) => {
                   </p>
 
                   <div className="main-app__sidebar-item-content-tags">
-                    {word.translations.map((el, index) => (
-                      <p
-                        className="main-app__sidebar-item-content-tags-tag"
-                        key={index}
-                      >
-                        {word.translations.length - 1 === index
-                          ? el
-                          : `${el}\u00A0·\u00A0`}
-                      </p>
-                    ))}
+                    <p className="main-app__sidebar-item-content-tags-tag">
+                      {wordsData[0].translations.join(" · ")}
+                    </p>
                   </div>
                 </div>
               </li>
@@ -177,25 +174,46 @@ export const MainContent = ({ selected }: MainContentProps) => {
       </aside>
 
       <article className="main-app__article">
-        <section className="main-app__article-section">
-          <h1 className="main-app__article-section-title">
-            {wordsData[0].name}
-          </h1>
-          <hr className="main-app__article-section-hr" />
-          <p className="main-app__article-section-subtitle">
-            {wordsData[0].translations[0]}
-          </p>
-        </section>
-        <section className="main-app__article-section-content">
+        <section
+          className={`${!showImage ? "none" : ""} main-app__article-section_content-img`}
+        >
           <img
             src={Test}
             alt={wordsData[0].name}
             className="main-app__article-section-image"
           />
         </section>
-        <section className="main-app__article-section-content">
+        <section className="main-app__article-section">
+          <h1 className="main-app__article-section-title">
+            {wordsData[0].name}{" "}
+            <button
+              onClick={() => setShowImage(!showImage)}
+              className="main-app__article-section-title_arrow"
+            >
+              {showImage ? (
+                <ArrowDropUp width={15} height={15} />
+              ) : (
+                <ArrowDropDown width={15} height={15} />
+              )}
+            </button>
+          </h1>
+
+          <hr className="main-app__article-section-hr" />
+          <div className="main-app__article-section-subtitles">
+            <p className="main-app__article-section-subtitle">
+              {wordsData[0].translations.join(", ")}
+            </p>
+          </div>
+        </section>
+
+        <section className="main-app__article-section_content-translation">
           <div className="main-app__article-section-content-translations">
             A reply or answer to a request, message, or signal.
+          </div>
+
+          <div className="main-app__article-section-content-translations-example">
+            <p>Example</p>
+            <span>She sent a thoughtful response the next morning</span>
           </div>
         </section>
       </article>

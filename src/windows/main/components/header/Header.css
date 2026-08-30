@@ -8,6 +8,9 @@
   align-items: center;
   justify-content: space-between;
 
+  position: relative;
+  z-index: 20;
+
   background: var(--bg-header);
 
   backdrop-filter: var(--glass-blur) var(--glass-saturate);
@@ -117,36 +120,4 @@
 .main-app__header-nav-item:hover::after,
 .main-app__header-nav-item-active::after {
   transform: scaleX(1);
-}
-
-.main-app__header-nav-theme-switcher-button {
-  max-height: 34px;
-  max-width: 34px;
-
-  cursor: pointer;
-
-  padding: 5px;
-
-  border: var(--border);
-  border-radius: var(--radius);
-
-  background: var(--bg-select-button);
-
-  backdrop-filter: var(--glass-blur) var(--glass-saturate);
-  -webkit-backdrop-filter: var(--glass-blur) var(--glass-saturate);
-
-  box-shadow: var(--glass-highlight);
-
-  transition:
-    background 0.3s ease,
-    transform 0.2s ease;
-
-  &:hover {
-    transform: translateY(-1px);
-  }
-}
-
-.main-app__header-nav-theme-switcher-button-image {
-  height: 100%;
-  max-height: fit-content;
 }

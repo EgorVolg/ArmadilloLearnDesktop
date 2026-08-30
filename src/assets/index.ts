@@ -5,3 +5,5 @@ export { Close } from "./Close";
 export { Search } from "./Search";
 export { Trash } from "./Trash";
 export { PottedPlant } from "./PottedPlant";
+export { Image } from "./Image";
+export { ArrowDropDown, ArrowDropUp } from "./ArrowsDrop";
