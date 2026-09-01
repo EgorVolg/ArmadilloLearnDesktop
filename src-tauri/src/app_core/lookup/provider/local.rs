@@ -97,22 +97,22 @@ struct LocalLookup {
 impl AiProvider for LocalProvider {
     fn lookup(&self, sentence: &str, word: &str) -> Result<LookupResult, String> {
         let prompt = format!(
-            r#"Analyze the English word "{word}" in this sentence:
+            r#"Analyze the English word "{word}" in context.
 
+Context:
 {sentence}
 
-Return the result as JSON matching the provided schema.
-
 Rules:
-- meaning: Definition of the word in this context in a single sentence.
+- meaning: concise definition of the word's meaning in this context, in one sentence.
 - word: copy the target word exactly.
-- sentence_translation: natural Russian translation of the sentence.
-- word_translation: Russian translation of the target word in this context.
-- synonyms: exactly 2-4 English synonyms.
-- part_of_speech: grammatical category.
-- topic: short topic describing the context.
-- Do not add explanations.
-- Do not use markdown."#
+- sentence_translation: natural, fluent Russian translation of the full sentence.
+- word_translation: the most appropriate Russian translation of the word in this context.
+- synonyms: 2-4 natural English synonyms matching this meaning.
+- part_of_speech: grammatical category of the word in this sentence.
+- topic: 1-3 word description of the sentence topic.
+- Use the context to resolve ambiguity.
+- Do not invent meanings unsupported by the context.
+- Return only the JSON object. No explanations or markdown."#
         );
 
         let format = json!({
