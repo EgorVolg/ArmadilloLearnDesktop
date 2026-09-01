@@ -41,13 +41,10 @@ impl ClickPipeline {
     pub fn process(&mut self, event: InputEvent) {
         match event {
             InputEvent::Lookup { x, y } => {
-                println!("ClickPipeline: Lookup at ({x}, {y})");
-
                 let click_at = Instant::now();
 
                 // Second click closes the overlay.
                 if self.visible {
-                    println!("Overlay is open, closing it immediately");
                     self.overlay.hide();
                     self.visible = false;
                     return;
@@ -55,16 +52,6 @@ impl ClickPipeline {
 
                 match self.lookup(x, y, click_at) {
                     Ok((result, _clicked_ocr_bbox)) => {
-                        println!("=== LOOKUP RESULT ===");
-                        println!("meaning: {}", result.meaning);
-                        println!("word: {}", result.word);
-                        println!("sentence_translation: {}", result.sentence_translation);
-                        println!("word_translation: {}", result.word_translation);
-                        println!("synonyms: {:?}", result.synonyms);
-                        println!("part_of_speech: {}", result.part_of_speech);
-                        println!("topic: {}", result.topic);
-                        println!("=== END LOOKUP RESULT ===");
-
                         let _ = self.app.emit("lookup-result", result);
 
                         self.overlay.show(x, y);
@@ -98,32 +85,17 @@ impl ClickPipeline {
         ),
         String,
     > {
-        println!("=== LOOKUP START ===");
-        println!("Global click: ({click_x}, {click_y})");
-
         // =========================================================
         // SCREENSHOT
         // =========================================================
 
-        println!("Capturing monitor under click...");
-
         let captured = capture_screen(click_x, click_y)?;
-
-        println!(
-            "Captured OCR region: {}x{}, origin=({}, {})",
-            captured.image.width, captured.image.height, captured.origin_x, captured.origin_y
-        );
-
-        println!(
-            "Click in screenshot coordinates: ({}, {})",
-            captured.click_x, captured.click_y
-        );
 
         // =========================================================
         // OCR
         // =========================================================
 
-        println!("=== STARTING LOCAL OCR ===");
+        let ocr_started = Instant::now();
 
         let ocr_boxes = {
             let mut ocr = self
@@ -135,8 +107,7 @@ impl ClickPipeline {
                 .map_err(|error| format!("OCR failed: {error:#}"))?
         };
 
-        println!("=== LOCAL OCR COMPLETE ===");
-        println!("OCR detected {} text regions", ocr_boxes.len());
+        println!("OCR заняло {} ms", ocr_started.elapsed().as_millis());
 
         if ocr_boxes.is_empty() {
             return Err("OCR detected no text".to_string());
@@ -148,11 +119,6 @@ impl ClickPipeline {
 
         let local_x = captured.click_x as f32;
         let local_y = captured.click_y as f32;
-
-        println!(
-            "Searching OCR boxes for click at ({:.1}, {:.1})",
-            local_x, local_y
-        );
 
         let clicked_index = ocr_boxes
             .iter()
@@ -168,26 +134,11 @@ impl ClickPipeline {
 
         let clicked_ocr = &ocr_boxes[clicked_index];
 
-        let clicked_ocr_local_bbox = clicked_ocr.bounding_rect();
-
-        println!(
-            "Clicked OCR LOCAL bbox=({:.1},{:.1})-({:.1},{:.1})",
-            clicked_ocr_local_bbox.0,
-            clicked_ocr_local_bbox.1,
-            clicked_ocr_local_bbox.2,
-            clicked_ocr_local_bbox.3
-        );
-
         let clicked_word = clicked_ocr.text.trim().to_string();
 
         if clicked_word.is_empty() {
             return Err("OCR found an empty word under cursor".to_string());
         }
-
-        println!(
-            "Clicked OCR index={} text='{}'",
-            clicked_index, clicked_word
-        );
 
         // =========================================================
         // CLICKED WORD BBOX
@@ -204,26 +155,11 @@ impl ClickPipeline {
             ))
         };
 
-        if let Some(bbox) = clicked_ocr_bbox {
-            println!(
-                "CLICKED WORD: '{}' bbox=({:.1}, {:.1})-({:.1}, {:.1})",
-                clicked_word, bbox.0, bbox.1, bbox.2, bbox.3
-            );
-        }
-
-        // =========================================================
-        // DEBUG OCR
-        // =========================================================
-
-        debug_ocr_boxes(&ocr_boxes, clicked_index, local_x, local_y);
-
         // =========================================================
         // BUILD FULL SENTENCE CONTEXT
         // =========================================================
 
         let context = extract_sentence_context(&ocr_boxes, clicked_index);
-
-        println!("FINAL OCR CONTEXT: '{}'", context);
 
         if context.trim().is_empty() {
             return Err("Failed to build OCR context".to_string());
@@ -233,31 +169,9 @@ impl ClickPipeline {
         // AI PROVIDER
         // =========================================================
 
-        let sent_at = now_ms();
-
-        println!(
-            "Sending text to AI provider... word='{}', sent at {} ms",
-            clicked_word, sent_at
-        );
-
-        let request_started = Instant::now();
-
         let result = self.provider.lookup(&context, &clicked_word)?;
 
-        let received_at = now_ms();
-
-        println!(
-            "AI provider responded: received at {} ms, round-trip took {} ms",
-            received_at,
-            request_started.elapsed().as_millis()
-        );
-
-        println!(
-            ">>> Time from click to AI response: {:.2} s",
-            click_at.elapsed().as_secs_f64()
-        );
-
-        println!("=== LOOKUP SUCCESS ===");
+        println!("Всего времени {} сек", click_at.elapsed().as_secs());
 
         Ok((result, clicked_ocr_bbox))
     }
@@ -354,11 +268,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
 
     let clicked = &ocr_boxes[clicked_index];
 
-    println!(
-        "Building full sentence context around '{}'",
-        clicked.text.trim()
-    );
-
     // =========================================================
     // BUILD VISUAL LINES
     // =========================================================
@@ -368,8 +277,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
     if lines.is_empty() {
         return clicked.text.trim().to_string();
     }
-
-    println!("OCR contains {} visual lines", lines.len());
 
     // =========================================================
     // FIND CLICKED LINE
@@ -381,8 +288,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
         return clicked.text.trim().to_string();
     };
 
-    println!("Clicked word belongs to visual line {}", clicked_line_index);
-
     let clicked_position = lines[clicked_line_index]
         .iter()
         .position(|index| *index == clicked_index);
@@ -390,8 +295,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
     let Some(clicked_position) = clicked_position else {
         return clicked.text.trim().to_string();
     };
-
-    println!("Clicked word position inside line: {}", clicked_position);
 
     // =========================================================
     // FIND SENTENCE START
@@ -405,7 +308,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
 
     'find_start: loop {
         if traversed_boxes >= MAX_SENTENCE_BOXES {
-            println!("Sentence start search stopped at MAX_SENTENCE_BOXES");
             break;
         }
 
@@ -427,7 +329,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
             // Большой gap внутри строки может означать
             // отдельный UI block.
             if is_large_horizontal_gap(previous, current) {
-                println!("Sentence start blocked by large horizontal gap");
                 break;
             }
 
@@ -445,7 +346,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
         }
 
         if traversed_lines >= MAX_SENTENCE_LINES {
-            println!("Sentence start search stopped at MAX_SENTENCE_LINES");
             break;
         }
 
@@ -456,7 +356,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
         let current_line = &lines[start_line];
 
         if !lines_can_be_continuous(ocr_boxes, previous_line, current_line) {
-            println!("Previous visual line is not continuous with current line");
             break;
         }
 
@@ -492,7 +391,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
 
     'find_end: loop {
         if traversed_boxes >= MAX_SENTENCE_BOXES {
-            println!("Sentence end search stopped at MAX_SENTENCE_BOXES");
             break;
         }
 
@@ -516,7 +414,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
             let next = &ocr_boxes[next_index];
 
             if is_large_horizontal_gap(current, next) {
-                println!("Sentence end blocked by large horizontal gap");
                 break;
             }
 
@@ -535,7 +432,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
         }
 
         if traversed_lines >= MAX_SENTENCE_LINES {
-            println!("Sentence end search stopped at MAX_SENTENCE_LINES");
             break;
         }
 
@@ -546,7 +442,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
         let next_line = &lines[next_line_index];
 
         if !lines_can_be_continuous(ocr_boxes, current_line, next_line) {
-            println!("Next visual line is not continuous with current line");
             break;
         }
 
@@ -600,16 +495,6 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
     }
 
     let context = join_ocr_text(&parts);
-
-    println!("Sentence range: lines {}..={}", start_line, end_line);
-
-    println!("Sentence contains {} OCR boxes", parts.len());
-
-    println!("Sentence start: '{}'", parts.first().copied().unwrap_or(""));
-
-    println!("Sentence end: '{}'", parts.last().copied().unwrap_or(""));
-
-    println!("FULL SENTENCE CONTEXT: '{}'", context);
 
     context
 }
@@ -917,34 +802,6 @@ fn ends_sentence(text: &str) -> bool {
     without_closing.ends_with('.')
         || without_closing.ends_with('?')
         || without_closing.ends_with('!')
-}
-
-// ============================================================================
-// DEBUG OCR
-// ============================================================================
-
-fn debug_ocr_boxes(ocr_boxes: &[OcrBox], clicked_index: usize, local_x: f32, local_y: f32) {
-    println!(
-        "=== OCR DEBUG === cursor=({:.1}, {:.1}) clicked_index={}",
-        local_x, local_y, clicked_index
-    );
-
-    for (index, item) in ocr_boxes.iter().enumerate() {
-        let (min_x, min_y, max_x, max_y) = item.bounding_rect();
-
-        let clicked = index == clicked_index;
-
-        let contains = item.contains_point(local_x, local_y);
-
-        println!(
-            "OCR #{index}: '{}' confidence={:.3} \
-             bbox=({:.1},{:.1})-({:.1},{:.1}) \
-             contains_click={} clicked={}",
-            item.text, item.confidence, min_x, min_y, max_x, max_y, contains, clicked
-        );
-    }
-
-    println!("=== END OCR DEBUG ===");
 }
 
 // ============================================================================

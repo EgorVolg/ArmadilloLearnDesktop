@@ -107,16 +107,6 @@ pub fn capture_screen(click_x: i32, click_y: i32) -> Result<CapturedScreen, Stri
         }
     }
 
-    println!(
-        "Captured crop: {}x{} at monitor ({}, {}), click in crop: ({}, {})",
-        crop_width,
-        crop_height,
-        crop_left,
-        crop_top,
-        local_click_x - crop_left,
-        local_click_y - crop_top
-    );
-
     let captured = CapturedScreen {
         image: Image {
             width: crop_width as u32,
