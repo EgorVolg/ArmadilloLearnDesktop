@@ -2,9 +2,8 @@ use anyhow::{Context, Result};
 
 use image::RgbImage;
 use rapidocr_core::{
-    config::{InferenceOptions, PipelineConfig},
+    config::{ExecutionProvider, InferenceOptions, PipelineConfig},
     model::PPOCRV5_EN_MOBILE,
-    types::OcrTimings,
     RapidOcr,
 };
 
@@ -19,12 +18,19 @@ use super::types::{OcrBox, OcrPoint};
 /// в rapidocr-core 0.2.2) — на многоядерном CPU инференс
 /// получается в разы медленнее возможного.
 ///
-/// Больше 8 потоков для det-модели почти не даёт выигрыша,
-/// поэтому ограничиваем сверху и берём минимум с числом ядер.
-const OCR_INFERENCE_THREADS_CAP: usize = 8;
+/// Используем все логические ядра с разумным потолком: rec-инференс
+/// (главная статья расходов) хорошо масштабируется до ~16 потоков.
+const OCR_INFERENCE_THREADS_CAP: usize = 16;
 
 pub struct OcrEngine {
     engine: RapidOcr,
+    /// Хеш пикселей последнего распознанного кропа.
+    ///
+    /// Повторные клики по тому же экрану (типичный сценарий чтения:
+    /// смотрим слово за словом без прокрутки) отдают боксы из кэша
+    /// мгновенно, пропуская det+rec полностью.
+    cache_hash: u64,
+    cache_boxes: Vec<OcrBox>,
 }
 
 impl OcrEngine {
@@ -36,31 +42,69 @@ impl OcrEngine {
             .unwrap_or(4)
             .min(OCR_INFERENCE_THREADS_CAP);
 
-        let inference = InferenceOptions {
-            intra_threads,
-            // Модели PP-OCR — одиночные графы без ветвлений,
-            // параллельный граф-исполнитель только добавляет
-            // накладные расходы.
-            inter_threads: 1,
-            parallel_execution: false,
-            enable_cpu_mem_arena: true,
-            execution_provider: Default::default(),
+        // Провайдер исполнения: по умолчанию CPU.
+        // DirectML включается только явно: ARMADILLO_OCR_EP=dml
+        //
+        // Почему DirectML не по умолчанию: крейт хардкодит
+        // DirectML::default() (device 0), выбора GPU нет в его API.
+        // На Optimus-ноутбуках DXGI-адаптер 0 — как правило встроенная
+        // Intel-графика, поэтому DirectML попадает в iGPU: скорость
+        // не растёт (shared-память), а точность детектора падает
+        // (FP16-расхождения дают пропуски текста под курсором).
+        let use_direct_ml = std::env::var("ARMADILLO_OCR_EP")
+            .map(|value| {
+                value.eq_ignore_ascii_case("dml") || value.eq_ignore_ascii_case("directml")
+            })
+            .unwrap_or(false);
+
+        let build_config = |provider: ExecutionProvider| {
+            let inference = InferenceOptions {
+                intra_threads,
+                // Модели PP-OCR — одиночные графы без ветвлений,
+                // параллельный граф-исполнитель только добавляет
+                // накладные расходы, а для DirectML он запрещён совсем.
+                inter_threads: 1,
+                parallel_execution: false,
+                enable_cpu_mem_arena: matches!(provider, ExecutionProvider::Cpu),
+                execution_provider: provider,
+            };
+
+            PPOCRV5_EN_MOBILE
+                .config(model_dir.clone())
+                // Скриншоты всегда правильной ориентации: классификатор
+                // поворота текстовых строк не нужен и только тратит
+                // время на каждый кроп.
+                .with_pipeline(PipelineConfig::without_cls())
+                .with_inference_options(inference)
         };
 
-        println!("OCR inference: intra_threads={intra_threads}, arena=on, pipeline=det+rec");
+        let (engine, provider_label) = if use_direct_ml {
+            // Экспериментальный путь: если GPU недоступен — откат на CPU.
+            match RapidOcr::new(build_config(ExecutionProvider::DirectMl)) {
+                Ok(engine) => (engine, "directml (экспериментально, ARMADILLO_OCR_EP=dml)"),
+                Err(dml_error) => {
+                    println!("OCR: DirectML init failed ({dml_error:#}), falling back to CPU");
 
-        let config = PPOCRV5_EN_MOBILE
-            .config(model_dir)
-            // Скриншоты всегда правильной ориентации: классификатор
-            // поворота текстовых строк не нужен и только тратит
-            // время на каждый кроп.
-            .with_pipeline(PipelineConfig::without_cls())
-            .with_inference_options(inference);
+                    let engine = RapidOcr::new(build_config(ExecutionProvider::Cpu))
+                        .context("failed to initialize PP-OCRv5 English OCR engine")?;
+                    (engine, "cpu (DirectML fallback)")
+                }
+            }
+        } else {
+            let engine = RapidOcr::new(build_config(ExecutionProvider::Cpu))
+                .context("failed to initialize PP-OCRv5 English OCR engine")?;
+            (engine, "cpu")
+        };
 
-        let engine =
-            RapidOcr::new(config).context("failed to initialize PP-OCRv5 English OCR engine")?;
+        println!(
+            "OCR inference: intra_threads={intra_threads}, pipeline=det+rec, ep={provider_label}"
+        );
 
-        Ok(Self { engine })
+        Ok(Self {
+            engine,
+            cache_hash: 0,
+            cache_boxes: Vec::new(),
+        })
     }
 
     /// Runs OCR exactly once over the supplied image.
@@ -70,12 +114,53 @@ impl OcrEngine {
     pub fn recognize(&mut self, image: &Image) -> Result<Vec<OcrBox>> {
         let rgb = image_to_rgb_image(image)?;
 
+        let hash = hash_rgb_image(&rgb);
+
+        if hash != 0 && hash == self.cache_hash {
+            println!("OCR cache hit ({} boxes)", self.cache_boxes.len());
+
+            return Ok(self.cache_boxes.clone());
+        }
+
+        let boxes = self.recognize_rgb(rgb)?;
+
+        self.cache_hash = hash;
+        self.cache_boxes = boxes.clone();
+
+        Ok(boxes)
+    }
+
+    /// Прогрев одним холостым инференсом сразу после старта приложения.
+    ///
+    /// Первый запуск аллоцирует memory arena и инициализирует
+    /// GPU-ресурсы DirectML; без прогрева это легло бы на первый клик.
+    /// Ошибка прогрева не фатальна — движок остаётся рабочим.
+    pub fn warm_up(&mut self) {
+        let started = std::time::Instant::now();
+
+        let rgb = synthetic_warmup_image();
+
+        match self.engine.run_image_timed(&rgb) {
+            Ok(timed) => {
+                // Важно, чтобы rec_inference_ms > 0: значит за прогрев
+                // отработали ОБЕ модели (det и rec) и обе сессии готовы.
+                println!(
+                    "OCR warm-up finished in {} ms (det {:.0} ms, rec {:.0} ms, {} lines)",
+                    started.elapsed().as_millis(),
+                    timed.timings.det_inference_ms,
+                    timed.timings.rec_inference_ms,
+                    timed.output.lines.len()
+                );
+            }
+            Err(error) => println!("OCR warm-up failed: {error:#}"),
+        }
+    }
+
+    fn recognize_rgb(&mut self, rgb: RgbImage) -> Result<Vec<OcrBox>> {
         let timed = self
             .engine
             .run_image_timed(&rgb)
             .context("PP-OCRv5 OCR inference failed")?;
-
-        log_ocr_timings(&timed.timings);
 
         let mut boxes = Vec::new();
 
@@ -93,18 +178,105 @@ impl OcrEngine {
     }
 }
 
-fn log_ocr_timings(timings: &OcrTimings) {
-    println!(
-        "OCR timings: total={:.0}ms | det prep={:.0} inf={:.0} post={:.0} | crop={:.0} | rec prep={:.0} inf={:.0} dec={:.0}",
-        timings.total_ms,
-        timings.det_preprocess_ms,
-        timings.det_inference_ms,
-        timings.det_postprocess_ms,
-        timings.crop_ms,
-        timings.rec_preprocess_ms,
-        timings.rec_inference_ms,
-        timings.rec_decode_ms,
-    );
+/// Хеш RGB-буфера кропа для кэша результатов.
+///
+/// SipHash по ~4 МБ пикселей стоит единицы миллисекунд — на фоне
+/// det+rec в секунды это бесплатно, а вероятность коллизии 1/2^64
+/// для практических целей ничтожна.
+fn hash_rgb_image(rgb: &RgbImage) -> u64 {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+
+    (rgb.width(), rgb.height()).hash(&mut hasher);
+    rgb.as_raw().hash(&mut hasher);
+
+    hasher.finish()
+}
+
+/// Белый холст с «текстом», отрисованным встроенным пиксельным шрифтом 5x7.
+///
+/// Слишком синтетические узоры (полосы, прямоугольники) DBNet-детектор
+/// не считает текстом и не находит — тогда rec-модель в прогреве не
+/// участвует и её сессия остаётся холодной. Буквенные формы детектор
+/// находит надёжно, поэтому за один прогрев отрабатывают обе модели.
+fn synthetic_warmup_image() -> RgbImage {
+    synthetic_text_image(1024, 420, 74)
+}
+
+/// «Терминальный» текст пиксельным шрифтом 5x7: строки через row_step
+/// пикселей, каждая заполняет ширину холста повтором фразы.
+///
+/// Служит и прогреву, и perf-тесту: плотность строк подбирается
+/// аргументом, чтобы приблизить нагрузку к реальному экрану.
+fn synthetic_text_image(width: u32, height: u32, row_step: u32) -> RgbImage {
+    /// Глифы 5x7: строки сверху вниз, биты слева направо (MSB — левый столбец).
+    const GLYPHS: &[(char, [u8; 7])] = &[
+        ('A', [0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11]),
+        ('C', [0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E]),
+        ('D', [0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E]),
+        ('E', [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F]),
+        ('H', [0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11]),
+        ('I', [0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E]),
+        ('L', [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F]),
+        ('M', [0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11]),
+        ('N', [0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11]),
+        ('O', [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]),
+        ('P', [0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10]),
+        ('R', [0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11]),
+        ('S', [0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E]),
+        ('T', [0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04]),
+        ('U', [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]),
+        ('W', [0x11, 0x11, 0x11, 0x15, 0x15, 0x15, 0x0A]),
+        ('X', [0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11]),
+    ];
+
+    const SCALE: u32 = 3;
+
+    const PHRASE: &str = "SAMPLE TEXT OCR WARMUP MAIN IDEA";
+
+    let mut image = RgbImage::from_pixel(width, height, image::Rgb([252, 252, 252]));
+
+    let mut top = 36u32;
+
+    while top + 7 * SCALE <= height.saturating_sub(36) {
+        let mut x = 36u32;
+
+        for character in PHRASE.chars().cycle() {
+            // Ширина символа — 5 колонок глифа + 3 зазора, умноженные на масштаб.
+            if x + 8 * SCALE > width.saturating_sub(36) {
+                break;
+            }
+
+            if character != ' ' {
+                if let Some((_, glyph)) = GLYPHS.iter().find(|(name, _)| *name == character) {
+                    for (glyph_row, bits) in glyph.iter().enumerate() {
+                        for column in 0..5u32 {
+                            if bits & (1 << (4 - column)) == 0 {
+                                continue;
+                            }
+
+                            for dy in 0..SCALE {
+                                for dx in 0..SCALE {
+                                    image.put_pixel(
+                                        x + column * SCALE + dx,
+                                        top + glyph_row as u32 * SCALE + dy,
+                                        image::Rgb([30, 30, 30]),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            x += 8 * SCALE;
+        }
+
+        top += row_step;
+    }
+
+    image
 }
 
 /// Converts one line-level OCR result into word-level boxes.
@@ -298,6 +470,71 @@ mod tests {
             .join("ppocrv5-en")
     }
 
+    /// A/B-проверка на реальном сохранённом кропе (качество + тайминг
+    /// + попадание в кэш при повторном вызове):
+    ///
+    ///   ARMADILLO_TEST_IMAGE=/path/to/ocr_crop_*.png \
+    ///     cargo test --release --lib -- --ignored ocr_real_crop --nocapture
+    #[test]
+    #[ignore]
+    fn ocr_real_crop_test() {
+        let path = std::env::var("ARMADILLO_TEST_IMAGE")
+            .expect("set ARMADILLO_TEST_IMAGE to a saved ocr_crop_*.png");
+
+        let rgb = image::open(&path)
+            .unwrap_or_else(|error| panic!("failed to open {path}: {error}"))
+            .to_rgb8();
+
+        let crop = crate::app_core::lookup::image::Image {
+            width: rgb.width(),
+            height: rgb.height(),
+            data: rgb.into_raw(),
+        };
+
+        let mut engine = OcrEngine::new(model_dir()).expect("failed to init OCR engine");
+
+        let started = std::time::Instant::now();
+
+        let boxes = engine.recognize(&crop).expect("OCR failed");
+
+        println!(
+            "Real crop {}x{}: {} boxes in {} ms",
+            crop.width,
+            crop.height,
+            boxes.len(),
+            started.elapsed().as_millis()
+        );
+
+        // Повторный вызов с тем же кадром — обязан попасть в кэш.
+        let started = std::time::Instant::now();
+
+        let cached = engine.recognize(&crop).expect("cached OCR failed");
+
+        println!(
+            "Cache call: {} boxes in {} ms",
+            cached.len(),
+            started.elapsed().as_millis()
+        );
+
+        assert_eq!(cached.len(), boxes.len(), "cache changed the result");
+
+        let text: Vec<&str> = boxes.iter().map(|item| item.text.as_str()).collect();
+
+        println!("Recognized: {}", text.join(" "));
+    }
+
+    /// Проверка прогрева: за один вызов warm_up должны отработать
+    /// и det, и rec (rec_inference_ms > 0). Запуск:
+    ///
+    ///   cargo test --lib -- --ignored ocr_warmup --nocapture
+    #[test]
+    #[ignore]
+    fn ocr_warmup_exercises_det_and_rec() {
+        let mut engine = OcrEngine::new(model_dir()).expect("failed to init OCR engine");
+
+        engine.warm_up();
+    }
+
     /// Smoke-тест производительности OCR на изображении размера кропа.
     ///
     /// Запускается вручную (нужны ONNX-модели в src/app_core/ocr/ppocrv5-en):
@@ -310,31 +547,15 @@ mod tests {
     fn ocr_smoke_test_region_performance() {
         let mut engine = OcrEngine::new(model_dir()).expect("failed to init OCR engine");
 
-        // Синтетический "скриншот" размера OCR-кропа:
-        // белый фон и тёмные сегменты, похожие на строки текста.
-        let width = 1440u32;
-        let height = 900u32;
-
-        let mut data = vec![255u8; (width * height * 3) as usize];
-
-        for row in 0..height {
-            for column in 0..width {
-                let stripe = row % 120 < 24 && (column % 200) < 140;
-
-                if stripe {
-                    let index = ((row * width + column) * 3) as usize;
-
-                    data[index] = 30;
-                    data[index + 1] = 30;
-                    data[index + 2] = 30;
-                }
-            }
-        }
+        // Синтетический «скриншот» размера OCR-кропа: плотный
+        // пиксельный текст, как на терминале или в IDE. Это главный
+        // стресс-случай rec-инференса: много боксов и широкие кропы.
+        let rgb = synthetic_text_image(1440, 900, 28);
 
         let image = Image {
-            width,
-            height,
-            data,
+            width: rgb.width(),
+            height: rgb.height(),
+            data: rgb.into_raw(),
         };
 
         // Первый прогон — прогрев сессий ONNX Runtime.

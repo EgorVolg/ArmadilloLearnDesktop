@@ -1,6 +1,7 @@
 use std::{
     sync::{mpsc, Arc, Mutex},
     thread,
+    time::Duration,
 };
 
 use tauri::AppHandle;
@@ -50,6 +51,36 @@ impl AppRuntime {
             Arc::new(LocalProvider::new().expect("Failed to create Local provider"));
 
         // =================================================
+        // AI WARM-UP
+        // =================================================
+        //
+        // Загружаем модель Ollama в VRAM сразу при старте приложения
+        // в фоновом потоке. Иначе первый клик ждал бы загрузку модели
+        // (десятки секунд при холодном старте Ollama).
+        //
+        // Ошибка прогрева (например, Ollama ещё не запущена) не критична:
+        // модель загрузится при первом реальном запросе.
+
+        thread::spawn(|| {
+            // Ollama может стартовать позже приложения (после ребута
+            // системы), поэтому прогрев ретраится ~60 секунд, пока модель
+            // не окажется в VRAM. keep_alive=-1 в прогреве и в lookup
+            // удерживает её резидентной — после этого cold start невозможен.
+            for _ in 0..30 {
+                if LocalProvider::new()
+                    .map(|provider| provider.warm_up())
+                    .unwrap_or(false)
+                {
+                    return;
+                }
+
+                thread::sleep(Duration::from_secs(2));
+            }
+
+            println!("AI model warm-up gave up after ~60 s; the first lookup will load the model");
+        });
+
+        // =================================================
         // OCR
         // =================================================
         //
@@ -67,6 +98,24 @@ impl AppRuntime {
         let ocr = OcrEngine::new(model_dir).expect("Failed to initialize OCR engine");
 
         let ocr = Arc::new(Mutex::new(ocr));
+
+        // =================================================
+        // OCR WARM-UP
+        // =================================================
+        //
+        // Первый инференс аллоцирует memory arena и инициализирует
+        // DirectML-ресурсы. Прогреваем в фоне сразу после старта,
+        // чтобы первый клик не платил за это.
+
+        {
+            let ocr = Arc::clone(&ocr);
+
+            thread::spawn(move || {
+                if let Ok(mut engine) = ocr.lock() {
+                    engine.warm_up();
+                }
+            });
+        }
 
         // =================================================
         // PIPELINE

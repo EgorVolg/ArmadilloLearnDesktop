@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use reqwest::blocking::Client;
 use serde::Deserialize;
@@ -7,7 +7,17 @@ use serde_json::json;
 use crate::app_core::lookup::{provider::_trait::AiProvider, types::LookupResult};
 
 const OLLAMA_URL: &str = "http://localhost:11434/api/chat";
-const OLLAMA_MODEL: &str = "qwen2.5vl:7b";
+
+/// Модель можно переопределить без перекомпиляции:
+/// ARMADILLO_OLLAMA_MODEL=qwen2.5vl:7b
+///
+/// По умолчанию 3b, а не 7b: на GPU с 6GB VRAM модель 7b (~6.2GB)
+/// не помещается целиком, ~46% слоёв выполняется на CPU, и генерация
+/// падает до ~12 tok/s (ответ за 9-17 секунд). 3b (~2.8GB) целиком
+/// живёт в VRAM и выдаёт ~94 tok/s (ответ за ~1.5 секунды).
+fn ollama_model() -> String {
+    std::env::var("ARMADILLO_OLLAMA_MODEL").unwrap_or_else(|_| "qwen2.5vl:3b".to_string())
+}
 
 pub struct LocalProvider {
     client: Client,
@@ -22,6 +32,44 @@ impl LocalProvider {
             .map_err(|error| format!("Failed to create Ollama HTTP client: {error}"))?;
 
         Ok(Self { client })
+    }
+
+    /// Прогрев: загружает веса модели в VRAM сразу при старте приложения,
+    /// чтобы первый lookup не ждал загрузки модели (десятки секунд).
+    ///
+    /// Возвращает true, если модель ответила (резидентна в VRAM).
+    /// Ошибки намеренно не печатаются: ретраи выполняет runtime.rs,
+    /// а при окончательной неудаче первый lookup покажет ошибку сам.
+    pub fn warm_up(&self) -> bool {
+        let started = Instant::now();
+
+        let request = json!({
+            "model": ollama_model(),
+            "keep_alive": -1,
+            "prompt": "ok",
+            "stream": false,
+            "options": {
+                "num_predict": 1
+            }
+        });
+
+        let result = self
+            .client
+            .post("http://localhost:11434/api/generate")
+            .json(&request)
+            .send();
+
+        match result {
+            Ok(response) if response.status().is_success() => {
+                println!(
+                    "AI model warm-up finished in {:.2} s",
+                    started.elapsed().as_secs_f64()
+                );
+
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -110,7 +158,7 @@ Rules:
         });
 
         let request = json!({
-            "model": OLLAMA_MODEL,
+            "model": ollama_model(),
             "keep_alive": -1,
             "messages": [
                 {
@@ -128,10 +176,17 @@ Rules:
             "options": {
                 "temperature": 0.0,
 
+                // Промпт + ответ укладываются в ~500 токенов. Маленький
+                // контекст = маленький KV-кэш = больше слоёв помещается
+                // в VRAM вместо CPU-offload.
+                "num_ctx": 2048,
+
                 // 80 is too small and causes truncated JSON.
                 "num_predict": 256
             }
         });
+
+        let request_started = Instant::now();
 
         let response = self
             .client
@@ -146,6 +201,11 @@ Rules:
         let response_text = response
             .text()
             .map_err(|error| format!("Failed to read Ollama response: {error}"))?;
+
+        println!(
+            "Ollama response занял {:.2} s",
+            request_started.elapsed().as_secs_f64()
+        );
 
         if !status.is_success() {
             return Err(format!("Ollama API returned {status}: {response_text}"));
