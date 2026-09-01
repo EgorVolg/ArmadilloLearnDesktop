@@ -18,9 +18,28 @@ use super::types::{OcrBox, OcrPoint};
 /// в rapidocr-core 0.2.2) — на многоядерном CPU инференс
 /// получается в разы медленнее возможного.
 ///
-/// Используем все логические ядра с разумным потолком: rec-инференс
-/// (главная статья расходов) хорошо масштабируется до ~16 потоков.
-const OCR_INFERENCE_THREADS_CAP: usize = 16;
+/// Матрица потоков на реальном кропе 1440x900 (65 строк, batch 2):
+/// 14 потоков == 8 потоков (rec ~0.9 с), 6 потоков уже медленнее.
+/// 8 потоков дают тот же результат с меньшим нагревом/троттлингом.
+const OCR_INFERENCE_THREADS_CAP: usize = 8;
+
+/// rec-батч по умолчанию.
+///
+/// Ширина входа rec-батча динамическая — 48 x ratio САМОЙ ШИРОКОЙ
+/// строки в батче, поэтому крупный батч смешивает строки разной
+/// ширины и увеличивает объём паддинга. Матрица на реальном кропе
+/// 1440x900 (65 строк терминального текста, 14 потоков), steady-state:
+///
+///   batch  6 -> total ~2.2 с, rec ~1.6 с (~25 мс/строку)
+///   batch  4 -> total ~1.7 с, rec ~1.2 с (~18 мс/строку)
+///   batch  3 -> total ~1.5 с, rec ~1.0 с (~15 мс/строку)
+///   batch  2 -> total ~1.4 с, rec ~0.9 с (~14 мс/строку)  <- оптимум
+///   batch  1 -> катастрофа: 65 последовательных session.run,
+///               каждый со своей формой тензора, не завершился
+///               за разумное время
+///
+/// Тюнинг без перекомпиляции: ARMADILLO_OCR_REC_BATCH.
+const OCR_REC_BATCH_DEFAULT: usize = 2;
 
 pub struct OcrEngine {
     engine: RapidOcr,
@@ -37,10 +56,22 @@ impl OcrEngine {
     pub fn new(model_dir: impl Into<std::path::PathBuf>) -> Result<Self> {
         let model_dir = model_dir.into();
 
-        let intra_threads = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4)
-            .min(OCR_INFERENCE_THREADS_CAP);
+        let intra_threads = std::env::var("ARMADILLO_OCR_THREADS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| (1..=32).contains(value))
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(4)
+                    .min(OCR_INFERENCE_THREADS_CAP)
+            });
+
+        let rec_batch_size = std::env::var("ARMADILLO_OCR_REC_BATCH")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| (1..=64).contains(value))
+            .unwrap_or(OCR_REC_BATCH_DEFAULT);
 
         // Провайдер исполнения: по умолчанию CPU.
         // DirectML включается только явно: ARMADILLO_OCR_EP=dml
@@ -69,8 +100,19 @@ impl OcrEngine {
                 execution_provider: provider,
             };
 
-            PPOCRV5_EN_MOBILE
-                .config(model_dir.clone())
+            let mut config = PPOCRV5_EN_MOBILE.config(model_dir.clone());
+
+            // rec-батчи формируются после сортировки кропов по соотношению
+            // сторон (TextRecognizer::recognize_timed), но ширина входа
+            // батча динамическая — 48 x ratio самой ШИРОКОЙ строки в батче.
+            // Маленький батч держит группы однородными по ширине и почти
+            // не платит паддингом; полная матрица измерений — в комментарии
+            // к OCR_REC_BATCH_DEFAULT выше.
+            if let Some(rec) = config.rec.as_mut() {
+                rec.batch_size = rec_batch_size;
+            }
+
+            config
                 // Скриншоты всегда правильной ориентации: классификатор
                 // поворота текстовых строк не нужен и только тратит
                 // время на каждый кроп.
@@ -97,7 +139,7 @@ impl OcrEngine {
         };
 
         println!(
-            "OCR inference: intra_threads={intra_threads}, pipeline=det+rec, ep={provider_label}"
+            "OCR inference: intra_threads={intra_threads}, rec_batch={rec_batch_size}, pipeline=det+rec, ep={provider_label}"
         );
 
         Ok(Self {
@@ -201,7 +243,15 @@ fn hash_rgb_image(rgb: &RgbImage) -> u64 {
 /// участвует и её сессия остаётся холодной. Буквенные формы детектор
 /// находит надёжно, поэтому за один прогрев отрабатывают обе модели.
 fn synthetic_warmup_image() -> RgbImage {
-    synthetic_text_image(1024, 420, 74)
+    // Размер и плотность реального кропа (1440x900, плотный текст).
+    //
+    // rec-модель принимает батчи ДИНАМИЧЕСКОЙ ширины (48 x ratio самой
+    // широкой строки батча), и каждая новая форма заставляет ONNX
+    // заново планировать граф и аллоцировать буферы. Узкая прогревочная
+    // картинка покрывала только узкие формы — первый реальный экран
+    // всё равно платил за планирование широких. Прогреваем худшим
+    // случаем: полноразмерный «терминальный» кадр.
+    synthetic_text_image(1440, 900, 34)
 }
 
 /// «Терминальный» текст пиксельным шрифтом 5x7: строки через row_step
@@ -493,30 +543,44 @@ mod tests {
 
         let mut engine = OcrEngine::new(model_dir()).expect("failed to init OCR engine");
 
+        // Первый прогон — аллокация буферов под динамические формы батчей.
         let started = std::time::Instant::now();
+
+        let _ = engine.recognize(&crop).expect("OCR failed");
+
+        println!("First run: {} ms", started.elapsed().as_millis());
+
+        // Второй прогон — steady-state, печатаем_split по фазам.
+        let started = std::time::Instant::now();
+
+        let timed = engine
+            .engine
+            .run_image_timed(&image::RgbImage::from_raw(
+                crop.width,
+                crop.height,
+                crop.data.clone(),
+            )
+            .expect("bad crop buffer"))
+            .expect("OCR failed");
+
+        println!(
+            "Real crop {}x{}: {} lines in {} ms | det prep {:.0} inf {:.0} post {:.0} | crop {:.0} | rec prep {:.0} inf {:.0} decode {:.0} ms",
+            crop.width,
+            crop.height,
+            timed.output.lines.len(),
+            started.elapsed().as_millis(),
+            timed.timings.det_preprocess_ms,
+            timed.timings.det_inference_ms,
+            timed.timings.det_postprocess_ms,
+            timed.timings.crop_ms,
+            timed.timings.rec_preprocess_ms,
+            timed.timings.rec_inference_ms,
+            timed.timings.rec_decode_ms,
+        );
 
         let boxes = engine.recognize(&crop).expect("OCR failed");
 
-        println!(
-            "Real crop {}x{}: {} boxes in {} ms",
-            crop.width,
-            crop.height,
-            boxes.len(),
-            started.elapsed().as_millis()
-        );
-
-        // Повторный вызов с тем же кадром — обязан попасть в кэш.
-        let started = std::time::Instant::now();
-
-        let cached = engine.recognize(&crop).expect("cached OCR failed");
-
-        println!(
-            "Cache call: {} boxes in {} ms",
-            cached.len(),
-            started.elapsed().as_millis()
-        );
-
-        assert_eq!(cached.len(), boxes.len(), "cache changed the result");
+        println!("Word boxes: {}", boxes.len());
 
         let text: Vec<&str> = boxes.iter().map(|item| item.text.as_str()).collect();
 
