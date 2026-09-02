@@ -43,11 +43,19 @@ impl ClickPipeline {
             InputEvent::Lookup { x, y } => {
                 let click_at = Instant::now();
 
-                // Second click closes the overlay.
-                if self.visible {
+                // Клик по самому оверлею закрывает его.
+                if self.visible && self.overlay.contains(x, y) {
                     self.overlay.hide();
                     self.visible = false;
                     return;
+                }
+
+                // Клик мимо оверлея — запрос нового слова: прячем текущий
+                // оверлей сразу, чтобы при ошибке поиска он не висел с
+                // устаревшим текстом; при успехе покажется на новом месте.
+                if self.visible {
+                    self.overlay.hide();
+                    self.visible = false;
                 }
 
                 match self.lookup(x, y, click_at) {

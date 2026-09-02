@@ -20,4 +20,8 @@ impl OverlayManager {
     pub fn hide(&self) {
         self.window.hide();
     }
+
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        self.window.contains(x, y)
+    }
 }
