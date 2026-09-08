@@ -40,6 +40,14 @@ impl ClickPipeline {
 
     pub fn process(&mut self, event: InputEvent) {
         match event {
+            InputEvent::Dismiss => {
+                // Любое «другое» нажатие клавиши/кнопки мыши закрывает оверлей.
+                if self.visible {
+                    self.overlay.hide();
+                    self.visible = false;
+                }
+            }
+
             InputEvent::Lookup { x, y } => {
                 let click_at = Instant::now();
 
@@ -254,21 +262,22 @@ const MAX_LINE_GAP_MULTIPLIER: f32 = 2.2;
 // Минимальное отношение высоты текста кандидата к референсной высоте
 // фразы, при котором они считаются набранными одним шрифтом.
 //
-// Порог намеренно жёсткий, по правилу пользователя: «кликнули в слово
-// 18px, следом идёт 20px — предложение закончилось» (18/20 = 0.9 —
-// уже граница). Референс — медиана высот уже собранных боксов фразы,
-// поэтому останавливается и одиночная смена кегля, и плавная
-// деградация (18 → 20 → 22).
+// История: 0.92 (строго, по правилу «18px рядом с 20px — стоп») на реальных
+// кадрах с аниме останавливал обход ВНУТРИ одного субтитра: детектор PP-OCR
+// режет строку на фрагменты, и высота фрагмента «дышит» на ±10% (кроп
+// обрезан вплотную к глифам: 36px рядом с 40px = 0.9). В итоге контекст
+// застревал на «одном слове» — метрики ocr_metrics_saved_crops показали,
+// что крупные субтитры дробятся гарантированно.
 //
-// Крупные субтитры (~55px) рядом с мелким UI (~25-35px) дают отношение
-// ~0.5-0.64: такие блоки по-прежнему не склеиваются — ни внутри одной
+// 0.85 принимает фрагментацию одного субтитра, но по-прежнему разделяет
+// блоки: крупные субтитры (~55px) рядом с мелким UI (~25-35px) дают
+// отношение ~0.5-0.64 — такие блоки не склеиваются ни внутри одной
 // визуальной строки, ни при переходе между строками.
 //
-// Известный компромисс: OCR-бокс слова с выносными элементами (g/y/p)
-// выше бокса слова без них того же кегля (отношение ~0.8-0.9), поэтому
-// на реальных скриншотах возможны преждевременные стопы. Если начнут
-// мешать — ослабить одной константой (например, до 0.85).
-const MIN_TEXT_HEIGHT_RATIO: f32 = 0.92;
+// Принятый компромисс: 18px рядом с 20px (0.9) теперь считается одним
+// шрифтом; границей блоков остаётся реальная смена кегля (18px против
+// 26px = 0.69 — стоп).
+const MIN_TEXT_HEIGHT_RATIO: f32 = 0.85;
 
 // Во сколько раз зазор между боксами должен превышать «обычный» пробел,
 // чтобы считаться границей предложения / переходом в другой блок.
@@ -379,33 +388,40 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
 
             let current = &ocr_boxes[current_index];
 
-            // Если предыдущий box заканчивает предложение,
-            // начало нашего предложения — текущий box.
-            if ends_sentence(previous.text.trim()) {
-                break;
-            }
-
-            // Широкий зазор внутри строки — конец предложения или
-            // отдельный блок: адаптивный порог (сравнение с обычными
-            // пробелами фразы) плюс абсолютный предохранитель.
-            if is_sentence_gap_boundary(previous, current, &gap_stats) {
-                break;
-            }
-
-            // Высота кандидата сверяется с референсом всей фразы,
-            // а не только с соседним боксом — иначе плавная смена
-            // кегля «утекает» по UI-блокам (см. MIN_TEXT_HEIGHT_RATIO).
-            if !text_heights_similar(
+            // Чужой кегль — не граница, а соседний блок на той же строке
+            // (меню, чипы, панель перевода рядом с субтитрами): пропускаем
+            // его, не включая в фразу и не портя статистику пробелов.
+            // Проверки ниже имеют смысл только между боксами одного кегля.
+            let previous_is_foreign = !text_heights_similar(
                 phrase_reference_height(&phrase_heights),
                 box_text_height(previous),
-            ) {
-                break;
+            );
+
+            let current_is_foreign = traversed_boxes > 0
+                && !text_heights_similar(
+                    phrase_reference_height(&phrase_heights),
+                    box_text_height(current),
+                );
+
+            if !previous_is_foreign && !current_is_foreign {
+                // Если предыдущий box заканчивает предложение,
+                // начало нашего предложения — текущий box.
+                if ends_sentence(previous.text.trim()) {
+                    break;
+                }
+
+                // Широкий зазор внутри строки — конец предложения или
+                // отдельный блок: адаптивный порог (сравнение с обычными
+                // пробелами фразы) плюс абсолютный предохранитель.
+                if is_sentence_gap_boundary(previous, current, &gap_stats) {
+                    break;
+                }
+
+                // Бокс принят — пополняем статистику фразы.
+                phrase_heights.push(box_text_height(previous));
+
+                gap_stats.push(horizontal_gap(previous, current));
             }
-
-            // Бокс принят — пополняем статистику фразы.
-            phrase_heights.push(box_text_height(previous));
-
-            gap_stats.push(horizontal_gap(previous, current));
 
             start_position -= 1;
             traversed_boxes += 1;
@@ -473,9 +489,16 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
 
         let current = &ocr_boxes[current_index];
 
+        let reference = phrase_reference_height(&phrase_heights);
+
+        // Чужой кегль (например, первый бокс следующей строки — UI) —
+        // не граница предложения: его точка не должна обрывать обход.
+        let current_is_foreign = traversed_boxes > 0
+            && !text_heights_similar(reference, box_text_height(current));
+
         // Если текущий box уже заканчивает предложение,
         // включаем его и останавливаемся.
-        if ends_sentence(current.text.trim()) {
+        if !current_is_foreign && ends_sentence(current.text.trim()) {
             break 'find_end;
         }
 
@@ -488,22 +511,21 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
 
             let next = &ocr_boxes[next_index];
 
-            if is_sentence_gap_boundary(current, next, &gap_stats) {
-                break;
+            // Проверки зазора — только между своими по кеглю боксами:
+            // цепочка субтитры -> чужой UI -> субтитры на той же строке
+            // не должна рвать фразу.
+            let next_is_foreign = !text_heights_similar(reference, box_text_height(next));
+
+            if !current_is_foreign && !next_is_foreign {
+                if is_sentence_gap_boundary(current, next, &gap_stats) {
+                    break;
+                }
+
+                // Бокс принят — пополняем статистику фразы.
+                phrase_heights.push(box_text_height(next));
+
+                gap_stats.push(horizontal_gap(current, next));
             }
-
-            // Высота кандидата сверяется с референсом всей фразы
-            // (см. комментарий в find_start).
-            let next_height = box_text_height(next);
-
-            if !text_heights_similar(phrase_reference_height(&phrase_heights), next_height) {
-                break;
-            }
-
-            // Бокс принят — пополняем статистику фразы.
-            phrase_heights.push(next_height);
-
-            gap_stats.push(horizontal_gap(current, next));
 
             end_position += 1;
             traversed_boxes += 1;
@@ -544,6 +566,10 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
     // BUILD FINAL TEXT
     // =========================================================
 
+    // Референс кегля фразы: отфильтровывает чужие блоки, перепрыгнутые
+    // обходом на смешанных строках.
+    let phrase_reference = phrase_reference_height(&phrase_heights);
+
     let mut parts: Vec<&str> = Vec::new();
 
     let mut line_index = start_line;
@@ -567,7 +593,15 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
             for position in from..=to {
                 let index = line[position];
 
-                let text = ocr_boxes[index].text.trim();
+                let ocr_box = &ocr_boxes[index];
+
+                // Чужие по кеглю боксы (UI на той же строке) в фразу
+                // не попадают, даже если обход их перепрыгнул.
+                if !text_heights_similar(phrase_reference, box_text_height(ocr_box)) {
+                    continue;
+                }
+
+                let text = ocr_box.text.trim();
 
                 if !text.is_empty() {
                     parts.push(text);
@@ -777,10 +811,17 @@ fn lines_can_be_continuous(ocr_boxes: &[OcrBox], previous: &[usize], current: &[
     // Разная высота шрифта — разные визуальные блоки (крупные субтитры
     // и мелкий UI над/под ними, заголовок и абзац). Такое соседство
     // плотно по вертикали, поэтому gap-проверка ниже его не ловит.
-    if !text_heights_similar(
-        line_dominant_height(ocr_boxes, previous),
-        line_dominant_height(ocr_boxes, current),
-    ) {
+    let previous_dominant = line_dominant_height(ocr_boxes, previous);
+
+    let current_dominant = line_dominant_height(ocr_boxes, current);
+
+    if !text_heights_similar(previous_dominant, current_dominant) {
+        println!(
+            "[sentence] line transition rejected: heights {:.1}px vs {:.1}px",
+            previous_dominant,
+            current_dominant
+        );
+
         return false;
     }
 
@@ -815,6 +856,12 @@ fn lines_can_be_continuous(ocr_boxes: &[OcrBox], previous: &[usize], current: &[
     // Если строки перекрываются или gap небольшой —
     // это нормальный межстрочный интервал.
     if vertical_gap > text_height * MAX_LINE_GAP_MULTIPLIER {
+        println!(
+            "[sentence] line transition rejected: vertical gap {:.1}px > {:.1}px",
+            vertical_gap,
+            text_height * MAX_LINE_GAP_MULTIPLIER
+        );
+
         return false;
     }
 
@@ -856,6 +903,12 @@ fn lines_can_be_continuous(ocr_boxes: &[OcrBox], previous: &[usize], current: &[
     //
     // Но огромный сдвиг считаем новым блоком.
     if x_difference > horizontal_reference * 2.0 {
+        println!(
+            "[sentence] line transition rejected: x shift {:.1}px > {:.1}px",
+            x_difference,
+            horizontal_reference * 2.0
+        );
+
         return false;
     }
 
@@ -1028,11 +1081,14 @@ fn join_ocr_text(parts: &[&str]) -> String {
 //
 // Учитываем:
 //
-//     .  ?  !  ;  :  …
+//     .  ?  !  ;  …
 //
 // и закрывающие кавычки / скобки:
 //
 //     ."  .)  .]  ?"  ;»
+//
+// `:` НЕ считается концом предложения: в субтитрах двоеточие часто стоит
+// внутри фразы («He said: ...»), и разрыв контекста на нём ломает перевод.
 //
 // Например:
 //
@@ -1055,8 +1111,7 @@ fn ends_sentence(text: &str) -> bool {
     without_closing.ends_with('.')
         || without_closing.ends_with('?')
         || without_closing.ends_with('!')
-        || without_closing.ends_with(';')
-        || without_closing.ends_with(':')
+        || without_closing.ends_with(';') 
         || without_closing.ends_with('…')
 }
 
@@ -1329,30 +1384,57 @@ mod tests {
         assert!(!similar_text_height(&subtitle_line, &ui_chip));
     }
 
-    /// Пример пользователя: клик в слово 18px, рядом слово 20px —
-    /// смена кегля останавливает обход (18/20 = 0.9 < 0.92).
+    /// 18px против 20px (0.9 >= 0.85) — умеренная разница высоты фрагментов
+    /// одного текста, обход продолжается. А реальная смена блока
+    /// (18px против 26px = 0.69 < 0.85) по-прежнему останавливает.
     /// Зазоры между словами везде одинаковые, чтобы срабатывал
     /// именно критерий высоты шрифта, а не пробелов.
     #[test]
-    fn different_font_size_stops_run() {
-        let ocr_boxes = vec![
+    fn moderate_font_difference_continues_large_stops() {
+        let moderate = vec![
             box_at(0.0, 0.0, 80.0, 18.0, "first"),
             box_at(90.0, 0.0, 200.0, 20.0, "second"),
             box_at(210.0, 0.0, 320.0, 20.0, "third"),
         ];
 
+        assert_eq!(
+            extract_sentence_context(&moderate, 0),
+            "first second third",
+            "18px рядом с 20px — фрагменты одного текста, идём дальше"
+        );
+
+        let large = vec![
+            box_at(0.0, 0.0, 80.0, 18.0, "first"),
+            box_at(90.0, 0.0, 220.0, 26.0, "second"),
+            box_at(230.0, 0.0, 340.0, 26.0, "third"),
+        ];
+
+        assert_eq!(
+            extract_sentence_context(&large, 0),
+            "first",
+            "18px рядом с 26px — смена кегля, вправо не идём"
+        );
+    }
+
+    /// Фрагменты одной строки крупного субтитра: детектор режет строку
+    /// на куски, и высота фрагмента «дышит» на ±10% (36px рядом с 40px).
+    /// Старый порог 0.92 останавливал обход внутри субтитра — контекст
+    /// застревал на одном слове. 0.85 собирает строку целиком.
+    #[test]
+    fn subtitle_fragment_boxes_continue() {
+        let ocr_boxes = vec![
+            box_at(0.0, 0.0, 120.0, 40.0, "Who"),
+            box_at(130.0, 0.0, 320.0, 36.0, "wouldn't"),
+            box_at(330.0, 0.0, 500.0, 40.0, "want"),
+            box_at(510.0, 0.0, 640.0, 37.0, "to"),
+            box_at(650.0, 0.0, 800.0, 40.0, "dodge?"),
+        ];
+
         let context = extract_sentence_context(&ocr_boxes, 0);
 
         assert_eq!(
-            context, "first",
-            "20px справа после кликнутого 18px — смена кегля, вправо не идём"
-        );
-
-        let context = extract_sentence_context(&ocr_boxes, 2);
-
-        assert_eq!(
-            context, "second third",
-            "18px слева от 20px — смена кегля, влево не идём"
+            context, "Who wouldn't want to dodge?",
+            "фрагменты одной строки субтитра собираются в предложение"
         );
     }
 
@@ -1430,8 +1512,8 @@ mod tests {
         );
     }
 
-    /// `;` и `:` — тоже конец предложения (клик в слово, у которого
-    /// слева/справа такой знак).
+    /// `;` — конец предложения, `:` — нет (двоеточие в субтитрах часто
+    /// стоит внутри фразы: «He said: ...»), поэтому обход через него идёт.
     #[test]
     fn semicolon_and_colon_end_sentence() {
         let ocr_boxes = vec![
@@ -1447,8 +1529,8 @@ mod tests {
 
         assert_eq!(
             extract_sentence_context(&ocr_boxes, clicked_then),
-            "then:",
-            "клик в слово с ':' — оно включается, обход дальше не идёт"
+            "then: go",
+            "клик в слово с ':' — «:» не граница, предложение идёт от «Wait;» до конца строки"
         );
 
         let clicked_wait = ocr_boxes
@@ -1469,8 +1551,168 @@ mod tests {
 
         assert_eq!(
             extract_sentence_context(&ocr_boxes, clicked_go),
-            "go",
-            "«then:» слева — граница предложения"
+            "then: go",
+            "«Wait;» слева — граница предложения"
+        );
+    }
+
+    /// Диагностика переходов между строками на реальном кропе.
+    ///
+    /// Запуск:
+    ///
+    ///   ARMADILLO_TEST_IMAGE=/path/to/ocr_crop_*.png \
+    ///     cargo test --release --lib -- --ignored sentence_context_real_crop --nocapture
+    ///
+    /// Опционально ARMADILLO_TEST_WORD — подстрока «кликнутого» слова
+    /// (по умолчанию «overtime»: кроп с трёхстрочными субтитрами YouTube).
+    /// Печатает все OCR-боксы с координатами и полный [sentence]-лог
+    /// extract_sentence_context.
+    #[test]
+    #[ignore]
+    fn sentence_context_real_crop() {
+        let path = std::env::var("ARMADILLO_TEST_IMAGE")
+            .expect("set ARMADILLO_TEST_IMAGE to a saved ocr_crop_*.png");
+
+        let rgb = image::open(&path)
+            .unwrap_or_else(|error| panic!("failed to open {path}: {error}"))
+            .to_rgb8();
+
+        let crop = crate::app_core::lookup::image::Image {
+            width: rgb.width(),
+            height: rgb.height(),
+            data: rgb.into_raw(),
+        };
+
+        let model_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("app_core")
+            .join("ocr")
+            .join("ppocrv5-en");
+
+        let mut engine =
+            crate::app_core::ocr::engine::OcrEngine::new(model_dir).expect("failed to init OCR engine");
+
+        let boxes = engine.recognize(&crop).expect("OCR failed");
+
+        println!("\n=== OCR boxes: {} ===", boxes.len());
+
+        for (index, ocr_box) in boxes.iter().enumerate() {
+            let (min_x, min_y, max_x, max_y) = ocr_box.bounding_rect();
+
+            println!(
+                "box {index}: '{:30}' @ [{min_x:7.1},{min_y:7.1} .. {max_x:7.1},{max_y:7.1}] h={:.1}",
+                ocr_box.text.trim(),
+                max_y - min_y
+            );
+        }
+
+        let word = std::env::var("ARMADILLO_TEST_WORD").unwrap_or_else(|_| "overtime".to_string());
+
+        let Some(clicked_index) = boxes
+            .iter()
+            .position(|ocr_box| ocr_box.text.trim().contains(&word))
+        else {
+            panic!("word '{word}' not found among OCR boxes");
+        };
+
+        println!(
+            "\n=== Sentence context for clicked box {clicked_index} ('{}') ===",
+            boxes[clicked_index].text.trim()
+        );
+
+        let context = extract_sentence_context(&boxes, clicked_index);
+
+        println!("\nCONTEXT: \"{context}\"");
+    }
+
+
+    /// Трёхстрочные центрированные субтитры, на тех же визуальных рядах —
+    /// сайдбар и панель перевода с мелким UI (сцена из реального кропа).
+    /// Обход перепрыгивает чужие блоки и собирает предложение целиком.
+    #[test]
+    fn three_line_sentence_with_ui_on_same_rows() {
+        let subtitle = |y: f32| (y, y + 56.0);
+
+        let ui = |y: f32| (y, y + 30.0);
+
+        let mut ocr_boxes = Vec::new();
+
+        let (top, bottom) = ui(440.0);
+
+        ocr_boxes.push(box_at(20.0, top, 100.0, bottom, "Playlists"));
+
+        let (top, bottom) = subtitle(430.0);
+
+        ocr_boxes.push(box_at(1100.0, top, 1240.0, bottom, "When"));
+        ocr_boxes.push(box_at(1250.0, top, 1330.0, bottom, "your"));
+        ocr_boxes.push(box_at(1340.0, top, 1440.0, bottom, "coworker"));
+        ocr_boxes.push(box_at(1450.0, top, 1540.0, bottom, "needs"));
+        ocr_boxes.push(box_at(1550.0, top, 1640.0, bottom, "help"));
+
+        let (top, bottom) = ui(490.0);
+
+        ocr_boxes.push(box_at(20.0, top, 80.0, bottom, "0"));
+        ocr_boxes.push(box_at(90.0, top, 220.0, bottom, "Watch"));
+
+        ocr_boxes.push(box_at(2050.0, top, 2160.0, bottom, "adjective"));
+
+        let (top, bottom) = subtitle(486.0);
+
+        ocr_boxes.push(box_at(1030.0, top, 1090.0, bottom, "at"));
+        ocr_boxes.push(box_at(1100.0, top, 1160.0, bottom, "the"));
+        ocr_boxes.push(box_at(1170.0, top, 1230.0, bottom, "end"));
+        ocr_boxes.push(box_at(1240.0, top, 1290.0, bottom, "of"));
+        ocr_boxes.push(box_at(1300.0, top, 1360.0, bottom, "the"));
+        ocr_boxes.push(box_at(1370.0, top, 1430.0, bottom, "day"));
+        ocr_boxes.push(box_at(1440.0, top, 1490.0, bottom, "but"));
+        ocr_boxes.push(box_at(1500.0, top, 1560.0, bottom, "you"));
+        ocr_boxes.push(box_at(1570.0, top, 1650.0, bottom, "cannot"));
+
+        let (top, bottom) = ui(550.0);
+
+        ocr_boxes.push(box_at(20.0, top, 90.0, bottom, "D"));
+
+        ocr_boxes.push(box_at(2050.0, top, 2180.0, bottom, "Synonyms:"));
+
+        let (top, bottom) = subtitle(542.0);
+
+        ocr_boxes.push(box_at(1140.0, top, 1230.0, bottom, "seeing"));
+        ocr_boxes.push(box_at(1240.0, top, 1290.0, bottom, "no"));
+        ocr_boxes.push(box_at(1300.0, top, 1420.0, bottom, "overtime"));
+        ocr_boxes.push(box_at(1430.0, top, 1500.0, bottom, "pay"));
+
+        let clicked_index = ocr_boxes
+            .iter()
+            .position(|ocr_box| ocr_box.text == "overtime")
+            .unwrap();
+
+        assert_eq!(
+            extract_sentence_context(&ocr_boxes, clicked_index),
+            "When your coworker needs help at the end of the day but you cannot seeing no overtime pay",
+            "чужие блоки на тех же рядах не должны рвать трёхстрочное предложение"
+        );
+    }
+
+    /// Чужой блок с точкой на той же строке не обрывает обход:
+    /// точка чужого кегля игнорируется, фраза продолжается.
+    #[test]
+    fn foreign_punctuation_on_same_row_is_skipped() {
+        let ocr_boxes = vec![
+            box_at(0.0, 0.0, 100.0, 56.0, "first"),
+            box_at(110.0, 0.0, 200.0, 56.0, "second"),
+            box_at(210.0, 0.0, 280.0, 30.0, "end."),
+            box_at(290.0, 0.0, 380.0, 56.0, "third"),
+        ];
+
+        let clicked_index = ocr_boxes
+            .iter()
+            .position(|ocr_box| ocr_box.text == "second")
+            .unwrap();
+
+        assert_eq!(
+            extract_sentence_context(&ocr_boxes, clicked_index),
+            "first second third",
+            "точка в чужом по кеглю боксе — не граница предложения"
         );
     }
 }

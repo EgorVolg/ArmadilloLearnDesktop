@@ -63,7 +63,7 @@ const TOPICS: [&str; 30] = [
 /// доверяет ответу слепо: тема сверяется со списком (точное совпадение
 /// или без учёта регистра) и канонизируется; неизвестное значение
 /// возвращается как есть — деградация вместо падения.
-fn canonicalize_topic(topic: &str) -> String {
+pub(crate) fn canonicalize_topic(topic: &str) -> String {
     let trimmed = topic.trim();
 
     if trimmed.is_empty() {
@@ -104,17 +104,31 @@ fn canonicalize_topic(topic: &str) -> String {
 ///   («крокодил»/«черепаха» для armadillo) — НЕ синонимы;
 /// - транслитерация запрещена: «armadillo» → «броненосец»,
 ///   никогда «Армадилло» (слова «армадилло» в русском нет).
-fn system_prompt() -> String {
+pub(crate) fn system_prompt() -> String {
     let topics = TOPICS.join(" / ");
 
     format!(
         r#"You are an English learning assistant. The user gives you an English sentence (extracted from the screen by OCR, so it may contain minor artifacts) and a target English word from it.
+Silently repair obvious OCR artifacts before translating: broken or
+misrecognized letters, missing or extra spaces, stray punctuation.
+Translate the INTENDED sentence; never reproduce artifacts in the
+translations.
 
 Reply with exactly one JSON object with these fields:
 - "word": string. Copy the target word exactly as given.
 - "sentence_translation": string. The complete, natural Russian translation of the WHOLE context sentence (or of the single word if the context is one word). Just the translation: no explanations, no alternatives, no transliteration.
-- "word_translation": string. The natural Russian translation of the target word AS USED IN THIS CONTEXT, in the same grammatical form as it appears inside sentence_translation, so that this exact string occurs inside sentence_translation. Example: for "more" in "More instructions" it must be "Больше", not "более". NEVER transliterate the English word into Russian letters: the English word "armadillo" is "броненосец" in Russian, never "Армадилло" — such words do not exist in Russian.
-- "meaning": string. ONE short simple English sentence at A1-A2 level, using only common words, that explains what the target word means in this context. Never use the target word itself inside meaning. Do not just repeat sentence_translation.
+The translation must read like natural fluent Russian written by a human
+translator: correct Russian word order, grammar and punctuation, never a
+word-by-word calque of the English sentence.
+BAD (word-by-word calque): for "More instructions will follow." → "Больше инструкций последуют."
+GOOD (natural Russian): "Дальше последуют ещё инструкции."
+Avoid stiff or bureaucratic Russian: prefer everyday wording ("Дальше", "ещё", "получится") over bookish constructions ("будут следовать", "дополнительные указания").
+- "word_translation": string. Follow ALL these rules:
+  1. Translate the target word AS USED IN THIS CONTEXT, in the SAME grammatical form as it appears inside sentence_translation: this exact string MUST occur inside sentence_translation. Example: for "more" in "More instructions" it must be "Больше", not "более".
+  2. If the word is inflected (plural, -ing, -ed, comparative), first determine its BASE form, then translate the base word as used in this context. "belting" is the -ing form of "belt" (to hit someone), so it must be translated as hitting, never as moving or anything unrelated.
+  3. Translate the TARGET WORD itself: never another word from the sentence, never the general situation.
+  4. NEVER transliterate the English word into Russian letters. The English word "armadillo" is "броненосец" in Russian, never "Армадилло" — the word "армадилло" does not exist in Russian.
+- "meaning": string. ONE short simple English sentence at A1-A2 level, using only common words, that explains what the target word means in this context. Never use the target word itself inside meaning. The meaning must explain the target word itself, not the sentence topic and not another word from the sentence. Do not just repeat sentence_translation.
 - "synonyms": array of English words that are TRUE synonyms of the target word in this context: they must be interchangeable with the target word in the SAME sentence with almost no change of meaning, and be the same part of speech. Words from the same category are NOT synonyms: for "armadillo" the words "crocodile" and "turtle" are different animals, not synonyms. If the word has no true synonyms — return an empty array []. Most concrete nouns (animals, objects, places) have no synonyms at all. Maximum 3 items. Never Russian words. Never the target word itself.
 - "part_of_speech": string. Grammatical category of the word in this sentence (noun, verb, adjective, adverb, ...).
 - "topic": string. EXACTLY one value from this list, nothing else: {topics}
@@ -124,6 +138,9 @@ Example reply for the word "run" in the sentence "He likes to run in the park ev
 
 Example reply for the word "armadillo" in "The armadillo rolled into a ball" (note the real Russian word, not a transliteration, and empty synonyms):
 {{"word":"armadillo","sentence_translation":"Броненосец свернулся в клубок.","word_translation":"Броненосец","meaning":"It is a small animal with a hard shell on its back.","synonyms":[],"part_of_speech":"noun","topic":"Природа и животные"}}
+
+Example reply for the word "belting" in "If belting my husband or Matarou makes you feel better" (note the base-form translation of an -ing word):
+{{"word":"belting","sentence_translation":"Если бить мужа или Матаро тебе становится легче,","word_translation":"бить","meaning":"It means to hit someone or something hard, often with a belt.","synonyms":["hitting"],"part_of_speech":"verb","topic":"Семья и отношения"}}
 
 Use the context to resolve ambiguity. Do not invent meanings unsupported by the context."#,
         topics = topics
@@ -138,7 +155,7 @@ Use the context to resolve ambiguity. Do not invent meanings unsupported by the 
 /// остальных полей. Это чинит реальный кейс qwen2.5vl:3b, когда модель
 /// останавливалась после "meaning" и lookup падал с
 /// "missing field `synonyms`".
-fn lookup_format() -> serde_json::Value {
+pub(crate) fn lookup_format() -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {
@@ -159,7 +176,10 @@ fn lookup_format() -> serde_json::Value {
             "synonyms",
             "part_of_speech",
             "topic"
-        ]
+        ],
+        // Требование strict-режима Groq; для Ollama безвредно — все поля
+        // и так объявлены в properties.
+        "additionalProperties": false
     })
 }
 
@@ -264,7 +284,10 @@ impl LocalProvider {
             // markdown-заборы.
             "format": lookup_format(),
             "options": {
-                "num_ctx": 2048,
+                // Промпт (30 тем + правила) + схема + user-сообщение —
+                // уже ~1500 токенов: при 2048 хвост инструкций обрезался,
+                // и модель теряла правила перевода. 4096 — с запасом.
+                "num_ctx": 4096,
                 // Кириллица токенизируется заметно дороже английского
                 // (~2-3 токена на слово), а обрыв по лимиту делает JSON
                 // невалидным. 512 покрывает полный ответ с запасом.
@@ -356,14 +379,14 @@ struct LocalLookup {
 }
 
 /// Проверка «текст на русском»: хотя бы один символ кириллицы.
-fn contains_cyrillic(text: &str) -> bool {
+pub(crate) fn contains_cyrillic(text: &str) -> bool {
     text.chars()
         .any(|character| ('\u{0400}'..='\u{04FF}').contains(&character))
 }
 
 /// Приводит topic к строке: модель иногда шлёт массив
 /// ["программирование", "код"] вместо строки.
-fn topic_to_string(topic: &serde_json::Value) -> String {
+pub(crate) fn topic_to_string(topic: &serde_json::Value) -> String {
     match topic {
         serde_json::Value::String(text) => text.trim().to_string(),
         serde_json::Value::Array(items) => items
@@ -381,7 +404,7 @@ fn topic_to_string(topic: &serde_json::Value) -> String {
 /// Приводит synonyms к массиву строк: модель иногда шлёт одну строку
 /// («jog, sprint») вместо массива, а при serde(default) поле может
 /// отсутствовать вовсе.
-fn synonyms_to_vec(synonyms: &serde_json::Value) -> Vec<String> {
+pub(crate) fn synonyms_to_vec(synonyms: &serde_json::Value) -> Vec<String> {
     match synonyms {
         serde_json::Value::Array(items) => items
             .iter()
@@ -462,7 +485,7 @@ fn translit_cyrillic_to_latin(text: &str) -> String {
 /// конкретного сбоя. Возможное ложное срабатывание на легитимном
 /// заимствовании («стоп» для "stop") стоит одного лишнего повтора,
 /// не корректности: повтор вернёт то же слово, и оно будет показано.
-fn is_transliteration(word: &str, russian_text: &str) -> bool {
+pub(crate) fn is_transliteration(word: &str, russian_text: &str) -> bool {
     let target = word
         .chars()
         .filter(|character| character.is_ascii_alphanumeric())
@@ -490,7 +513,7 @@ fn is_transliteration(word: &str, russian_text: &str) -> bool {
 /// Детерминированная чистка синонимов: модель подсовывает само целевое
 /// слово, дубликат в другом регистре или пустые строки. Лимит 3 —
 /// синонимы в UI вторичны.
-fn clean_synonyms(word: &str, synonyms: Vec<String>) -> Vec<String> {
+pub(crate) fn clean_synonyms(word: &str, synonyms: Vec<String>) -> Vec<String> {
     let target = word.trim().to_lowercase();
 
     let mut cleaned: Vec<String> = Vec::new();
@@ -499,6 +522,16 @@ fn clean_synonyms(word: &str, synonyms: Vec<String>) -> Vec<String> {
         let trimmed = synonym.trim();
 
         if trimmed.is_empty() {
+            continue;
+        }
+
+        // Синонимы обязаны быть английскими: модель иногда подсовывает
+        // перевод слова на русском («указания», «пояснения») — в UI
+        // рядом с английским словом это мусор.
+        if trimmed
+            .chars()
+            .any(|c| ('\u{0400}'..='\u{04FF}').contains(&c))
+        {
             continue;
         }
 
@@ -522,6 +555,47 @@ fn clean_synonyms(word: &str, synonyms: Vec<String>) -> Vec<String> {
     cleaned
 }
 
+/// Ищет в переводе предложения слово, однокоренное needle_lower: их общий
+/// префикс покрывает ≥55% обеих форм и составляет минимум 5 символов.
+/// Порог отсекает случайные совпадения первых букв («сжатие»/«сжимаются»
+/// не сматчатся намеренно: общий префикс «сж» короче минимума). Не 60%:
+/// реальный кейс «компрессир» (10) от «компрессированный» (17) — это
+/// 58.8%, и слово однокоренное.
+///
+/// Общий помощник align_word_translation и word_translation_is_connected:
+/// ступени согласованности обязаны совпадать, иначе валидация отбраковывала
+/// бы ответы, которые выравнивание считает нормальными.
+fn find_cognate_in_sentence<'a>(
+    needle_lower: &str,
+    sentence_translation: &'a str,
+) -> Option<&'a str> {
+    let needle_len = needle_lower.chars().count();
+
+    sentence_translation
+        .split(|character: char| !character.is_alphanumeric() && character != '-')
+        .filter(|candidate| !candidate.is_empty())
+        .map(|candidate| {
+            let candidate_lower = candidate.to_lowercase();
+
+            let common = needle_lower
+                .chars()
+                .zip(candidate_lower.chars())
+                .take_while(|(from_needle, from_candidate)| from_needle == from_candidate)
+                .count();
+
+            (common, candidate)
+        })
+        .filter(|(common, candidate)| {
+            let candidate_len = candidate.to_lowercase().chars().count();
+
+            // 55% покрытия обеих форм (common * 20 >= len * 11) и минимум
+            // 5 совпавших символов.
+            *common >= 5 && common * 20 >= needle_len * 11 && common * 20 >= candidate_len * 11
+        })
+        .max_by_key(|(common, _)| *common)
+        .map(|(_, candidate)| candidate)
+}
+
 /// Фронтенд подсвечивает перевод слова внутри перевода предложения
 /// точным вхождением строки. Промпт требует вернуть слово в той же
 /// грамматической форме, но маленькая модель иногда ошибается в форме
@@ -534,7 +608,7 @@ fn clean_synonyms(word: &str, synonyms: Vec<String>) -> Vec<String> {
 /// совпадение по стему (слово без двух последних букв — окончание).
 /// Если ничего не нашлось, возвращаем как есть: текст осмысленный,
 /// просто без подсветки.
-fn align_word_translation(word_translation: &str, sentence_translation: &str) -> String {
+pub(crate) fn align_word_translation(word_translation: &str, sentence_translation: &str) -> String {
     let word_translation = word_translation.trim();
 
     if word_translation.is_empty() {
@@ -580,39 +654,11 @@ fn align_word_translation(word_translation: &str, sentence_translation: &str) ->
     // слова (другой падеж, причастие vs глагол). Считаем слова однокоренными,
     // если их общий префикс покрывает бо́льшую часть обеих форм, и возвращаем
     // форму, реально стоящую в переводе, — точный contains() на фронтенде
-    // совпадёт. Порог в 55% и минимум 5 символов отсекают случайные
-    // совпадения первых букв («сжатие»/«сжимаются» не сматчатся намеренно:
-    // их общий префикс «сж» короче минимума).
+    // совпадёт. Пороги однокоренности — в find_cognate_in_sentence.
     let needle_lower: String = needle.iter().collect::<String>().to_lowercase();
 
-    let needle_len = needle_lower.chars().count();
-
-    let best = sentence_translation
-        .split(|character: char| !character.is_alphanumeric() && character != '-')
-        .filter(|candidate| !candidate.is_empty())
-        .map(|candidate| {
-            let candidate_lower = candidate.to_lowercase();
-
-            let common = needle_lower
-                .chars()
-                .zip(candidate_lower.chars())
-                .take_while(|(from_needle, from_candidate)| from_needle == from_candidate)
-                .count();
-
-            (common, candidate)
-        })
-        .filter(|(common, candidate)| {
-            let candidate_len = candidate.to_lowercase().chars().count();
-
-            // 55% покрытия обеих форм (common * 20 >= len * 11) и минимум
-            // 5 совпавших символов. Не 60%: реальный кейс «компрессир» (10)
-            // от «компрессированный» (17) — это 58.8%, и слово однокоренное.
-            *common >= 5 && common * 20 >= needle_len * 11 && common * 20 >= candidate_len * 11
-        })
-        .max_by_key(|(common, _)| *common);
-
-    match best {
-        Some((_, found)) => {
+    match find_cognate_in_sentence(&needle_lower, sentence_translation) {
+        Some(found) => {
             println!(
                 "word_translation '{word_translation}' aligned to '{found}' from sentence translation"
             );
@@ -623,10 +669,42 @@ fn align_word_translation(word_translation: &str, sentence_translation: &str) ->
     }
 }
 
+/// Валидация согласованности ответа модели: word_translation обязано
+/// прослеживаться в sentence_translation — точным вхождением, без учёта
+/// регистра или однокоренным словом (ровно те же ступени, по которым
+/// align_word_translation чинит форму). Если связи нет вовсе, модель
+/// перевела не то слово или выдумала значение (реальный кейс qwen3:4b:
+/// «круто двигая» для «belting» в предложении про «бить мужа»).
+pub(crate) fn word_translation_is_connected(
+    word_translation: &str,
+    sentence_translation: &str,
+) -> bool {
+    let word_translation = word_translation.trim();
+
+    if word_translation.is_empty() {
+        return false;
+    }
+
+    // 1. Точное вхождение.
+    if sentence_translation.contains(word_translation) {
+        return true;
+    }
+
+    let needle_lower = word_translation.to_lowercase();
+
+    // 2. Регистронезависимое вхождение.
+    if sentence_translation.to_lowercase().contains(&needle_lower) {
+        return true;
+    }
+
+    // 3. Однокоренное слово в переводе.
+    find_cognate_in_sentence(&needle_lower, sentence_translation).is_some()
+}
+
 /// Маленькие модели иногда оборачивают JSON в markdown-забор ```json ... ```
 /// или добавляют текст до/после объекта. Срезаем всё до первого `{`
 /// и после последнего `}`, чтобы парсер получил чистый объект.
-fn strip_json_fences(text: &str) -> String {
+pub(crate) fn strip_json_fences(text: &str) -> String {
     let trimmed = text.trim();
 
     if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}')) {
@@ -797,7 +875,9 @@ mod tests {
     #[test]
     #[ignore = "требует запущенного Ollama: реальный вызов модели"]
     fn real_lookup_smoke() {
-        let provider = LocalProvider::new().expect("провайдер должен создаваться");
+        let provider = crate::app_core::lookup::provider::groq::GroqProvider::new()
+            .expect("провайдер должен создаваться");
+        // let provider = LocalProvider::new().expect("провайдер должен создаваться");
 
         let started = Instant::now();
 
@@ -818,6 +898,44 @@ mod tests {
             "перевод предложения должен быть на русском"
         );
     }
+
+    /// ВРЕМЕННЫЙ тест для сравнения качества моделей Ollama на одних и тех
+    /// же кейсах. Запуск: ARMADILLO_OLLAMA_MODEL=<model> cargo test --lib
+    /// model_compare_live -- --ignored --nocapture --test-threads=1
+    #[test]
+    #[ignore = "требует запущенного Ollama: живое сравнение моделей"]
+    fn model_compare_live() {
+        let model = std::env::var("ARMADILLO_OLLAMA_MODEL").unwrap_or_else(|_| ollama_model());
+        let cases: [(&str, &str); 4] = [
+            ("More instructions will follow.", "instructions"),
+            ("If belting my husband or Matarou makes you feel better", "belting"),
+            ("The armadillo rolled into a ball", "armadillo"),
+            ("She folded the letter in half before putting it away", "folded"),
+        ];
+
+        let provider = LocalProvider::new().expect("провайдер должен создаваться");
+
+        for (sentence, word) in cases {
+            let started = Instant::now();
+            let result = provider.lookup(sentence, word);
+            let elapsed = started.elapsed().as_secs_f64();
+
+            println!("\n=== {model} | word=\"{word}\" | {elapsed:.1}s ===");
+            match result {
+                Ok(r) => {
+                    println!("sentence: {}", r.sentence_translation);
+                    println!("word:     {}", r.word_translation);
+                    println!("meaning:  {}", r.meaning);
+                    println!(
+                        "pos: {} | topic: {} | syn: {:?}",
+                        r.part_of_speech, r.topic, r.synonyms
+                    );
+                }
+                Err(error) => println!("ERROR: {error}"),
+            }
+        }
+    }
+
 
     #[test]
     #[ignore = "требует запущенного Ollama: реальный вызов модели"]
@@ -1025,6 +1143,52 @@ mod tests {
         assert_eq!(format["properties"]["synonyms"]["type"], "array");
     }
 
+    // ------------------------------------------------------------------
+    // word_translation_is_connected: валидация согласованности ответа
+    // модели. Ловит галлюцинации вида «круто двигая» для «belting»:
+    // перевод слова не встречается в переводе предложения ни точно,
+    // ни однокоренным словом.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn connected_accepts_exact_occurrence() {
+        assert!(word_translation_is_connected(
+            "бить",
+            "Если бить мужа или Матаро тебе становится легче,"
+        ));
+    }
+
+    #[test]
+    fn connected_accepts_case_insensitive_occurrence() {
+        assert!(word_translation_is_connected(
+            "броненосец",
+            "Броненосец свернулся в клубок."
+        ));
+    }
+
+    #[test]
+    fn connected_accepts_cognate_form() {
+        assert!(word_translation_is_connected(
+            "кэширования",
+            "Это ускоряет кэширование страниц."
+        ));
+    }
+
+    #[test]
+    fn connected_rejects_unrelated_translation() {
+        // Реальный кейс с qwen3:4b: для «belting» модель выдала
+        // «круто двигая», никак не связанное с переводом предложения.
+        assert!(!word_translation_is_connected(
+            "круто двигая",
+            "Если бить мужа или Матаро тебе становится легче,"
+        ));
+    }
+
+    #[test]
+    fn connected_rejects_empty_translation() {
+        assert!(!word_translation_is_connected("", "Какой-то перевод."));
+    }
+
     #[test]
     fn cyrillic_detection() {
         assert!(contains_cyrillic("Сжатие данных"));
@@ -1046,7 +1210,10 @@ mod tests {
 impl AiProvider for LocalProvider {
     fn lookup(&self, sentence: &str, word: &str) -> Result<LookupResult, String> {
         // DEBUG: краткая сводка о том, что ищем (полный запрос печатает request_lookup).
-        println!("[lookup] word=\"{word}\", sentence=\"{sentence}\"");
+        println!(
+            "[lookup/local] word=\"{word}\", model={}, sentence=\"{sentence}\"",
+            ollama_model()
+        );
 
         let messages = json!([
             {
@@ -1126,6 +1293,48 @@ impl AiProvider for LocalProvider {
             match self.request_lookup(corrective) {
                 Ok((retried, _)) => generated = retried,
                 Err(retry_error) => println!("Transliteration retry failed: {retry_error}"),
+            }
+        }
+
+        // Валидация согласованности: word_translation обязано прослеживаться
+        // в sentence_translation (точным вхождением, без учёта регистра или
+        // однокоренным словом — те же ступени, что у align_word_translation).
+        // Если связи нет вовсе, модель перевела не то слово или выдумала
+        // значение: промпт это запрещает, но модель нарушает запрет; один
+        // корректирующий повтор с явным разбором ошибки чинит. Ровно один
+        // повтор, не цикл: несогласованный ответ после повтора показывается
+        // как есть (деградация вместо задержек).
+        if !word_translation_is_connected(
+            &generated.word_translation,
+            &generated.sentence_translation,
+        ) {
+            println!(
+                "word_translation '{}' is unrelated to sentence_translation, retrying once",
+                generated.word_translation
+            );
+
+            let corrective = json!([
+                {
+                    "role": "system",
+                    "content": &system_prompt()
+                },
+                {
+                    "role": "user",
+                    "content": format!("Target word: \"{word}\"\n\nContext sentence:\n{sentence}")
+                },
+                {
+                    "role": "assistant",
+                    "content": &content
+                },
+                {
+                    "role": "user",
+                    "content": format!("Your word_translation is unrelated to your sentence_translation. The target word is \"{word}\". Reply with the same JSON object again, but word_translation must be the natural Russian translation of \"{word}\" as used in the context sentence, in the same grammatical form as it appears inside sentence_translation, so that this exact string occurs inside sentence_translation. The meaning must explain \"{word}\" itself, not another word from the sentence.")
+                }
+            ]);
+
+            match self.request_lookup(corrective) {
+                Ok((retried, _)) => generated = retried,
+                Err(retry_error) => println!("Consistency retry failed: {retry_error}"),
             }
         }
 

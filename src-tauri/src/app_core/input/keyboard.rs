@@ -6,18 +6,19 @@ use std::{
 use windows::Win32::{
     Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM},
     System::Threading::GetCurrentThreadId,
-    UI::WindowsAndMessaging::{
-        CallNextHookEx, DispatchMessageW, GetMessageW, PeekMessageW, PostThreadMessageW,
-        SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, MSG, MSLLHOOKSTRUCT,
-        PEEK_MESSAGE_REMOVE_TYPE, WH_MOUSE_LL, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
-        WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN,
-        WM_XBUTTONDBLCLK, WM_XBUTTONDOWN,
+    UI::{
+        Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_P},
+        WindowsAndMessaging::{
+            CallNextHookEx, DispatchMessageW, GetMessageW, KBDLLHOOKSTRUCT, PeekMessageW,
+            PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
+            PEEK_MESSAGE_REMOVE_TYPE, WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN, MSG,
+        },
     },
 };
 
 use super::event::InputEvent;
 
-pub struct MouseHook {
+pub struct KeyboardHook {
     stop_thread_id: u32,
     thread: Option<JoinHandle<()>>,
 }
@@ -28,7 +29,7 @@ struct HookState {
 
 static HOOK_STATE: OnceLock<Arc<HookState>> = OnceLock::new();
 
-impl MouseHook {
+impl KeyboardHook {
     pub fn start(tx: Sender<InputEvent>) -> Result<Self, windows::core::Error> {
         let state = Arc::new(HookState { tx });
 
@@ -55,13 +56,13 @@ impl MouseHook {
             //
             let hook = unsafe {
                 SetWindowsHookExW(
-                    WH_MOUSE_LL,
-                    Some(mouse_hook_proc),
+                    WH_KEYBOARD_LL,
+                    Some(keyboard_hook_proc),
                     Some(HINSTANCE::default()),
                     0,
                 )
             }
-            .expect("Failed to install mouse hook");
+            .expect("Failed to install keyboard hook");
 
             //
             // Message loop
@@ -89,7 +90,7 @@ impl MouseHook {
     }
 }
 
-impl Drop for MouseHook {
+impl Drop for KeyboardHook {
     fn drop(&mut self) {
         unsafe {
             let _ = PostThreadMessageW(self.stop_thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
@@ -101,27 +102,23 @@ impl Drop for MouseHook {
     }
 }
 
-unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         match wparam.0 as u32 {
-            // Средняя кнопка мыши (клик колесом) — lookup, как раньше.
-            WM_MBUTTONDOWN | WM_MBUTTONDBLCLK => {
-                let info = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+            // Нажатие клавиши (включая Alt-комбинации). Отпускание и
+            // автоповтор игнорируем: скрыть окно достаточно один раз.
+            WM_KEYDOWN | WM_SYSKEYDOWN => {
+                let info = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
 
-                emit(InputEvent::Lookup {
-                    x: info.pt.x,
-                    y: info.pt.y,
-                });
-            }
+                // Ctrl+P — глобальная комбинация lookup. Её обрабатывает
+                // RegisterHotKey в hotkey.rs, здесь пропускаем, чтобы не
+                // слать лишний Dismiss вместе с Lookup.
+                let is_ctrl_p = info.vkCode == VK_P.0 as u32 && ctrl_pressed();
 
-            // Любая другая кнопка мыши — скрываем оверлей.
-            WM_LBUTTONDOWN
-            | WM_LBUTTONDBLCLK
-            | WM_RBUTTONDOWN
-            | WM_RBUTTONDBLCLK
-            | WM_XBUTTONDOWN
-            | WM_XBUTTONDBLCLK => {
-                emit(InputEvent::Dismiss);
+                if !is_ctrl_p {
+                    // Любая другая клавиша — скрываем оверлей.
+                    emit(InputEvent::Dismiss);
+                }
             }
 
             _ => {}
@@ -129,6 +126,14 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
     }
 
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
+/// Зажата ли сейчас клавиша Control (левая или правая).
+fn ctrl_pressed() -> bool {
+    unsafe {
+        let state = GetAsyncKeyState(VK_CONTROL.0 as i32);
+        u16::from_le_bytes(state.to_le_bytes()) & 0x8000 != 0
+    }
 }
 
 fn emit(event: InputEvent) {

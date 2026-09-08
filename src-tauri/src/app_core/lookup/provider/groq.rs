@@ -1,224 +1,484 @@
-// use std::time::Duration;
+use std::time::Duration;
 
-// use base64::{ engine::general_purpose, Engine as _ };
-// use reqwest::blocking::Client;
-// use serde::Deserialize;
+use reqwest::blocking::Client;
+use serde::Deserialize;
+use serde_json::{json, Value};
 
-// use crate::app_core::lookup::{ LookupResult, provider::_trait::AiProvider, time::now_ms };
+use super::local::LocalProvider;
+use crate::app_core::lookup::provider::_trait::AiProvider;
+use crate::app_core::lookup::provider::local::{
+    align_word_translation, canonicalize_topic, clean_synonyms, contains_cyrillic,
+    is_transliteration, lookup_format, strip_json_fences, synonyms_to_vec, system_prompt,
+    topic_to_string, word_translation_is_connected,
+};
+use crate::app_core::lookup::types::LookupResult;
 
-// const GROQ_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
 
-// const GROQ_MODEL: &str = "qwen/qwen3.6-27b";
+/// Быстрая модель free-tier Groq: сотни tok/s, structured outputs,
+/// reasoning_effort. Переопределяется ARMADILLO_GROQ_MODEL.
+const DEFAULT_MODEL: &str = "openai/gpt-oss-120b";
 
-// pub struct GroqProvider {
-//     client: Client,
-// }
+/// Полный бюджет одного lookup через облако. При превышении —
+/// ошибка и автоматический fallback на локальную Ollama.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 
-// impl GroqProvider {
-//     pub fn new() -> Result<Self, String> {
-//         let client = Client::builder()
-//             .connect_timeout(Duration::from_secs(10))
-//             .timeout(Duration::from_secs(60))
-//             .build()
-//             .map_err(|error| { format!("Failed to create HTTP client: {error}") })?;
+/// Облачный провайдер Groq (OpenAI-совместимый API).
+///
+/// Ключ берётся из GROQ_API_KEY; без ключа new() возвращает Err —
+/// runtime в этом случае просто не создаёт облачный путь.
+pub struct GroqProvider {
+    client: Client,
+    api_key: String,
+    model: String,
+}
 
-//         Ok(Self { client })
-//     }
+impl GroqProvider {
+    pub fn new() -> Result<Self, String> {
+        let api_key = std::env::var("GROQ_API_KEY")
+            .map(|value| value.trim().to_string())
+            .ok()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "GROQ_API_KEY is not set".to_string())?;
 
-//     fn api_key() -> Result<String, String> {
-//         std::env
-//             ::var("GROQ_API_KEY")
-//             .map_err(|_| { "GROQ_API_KEY environment variable is not set".to_string() })
-//     }
+        let model = std::env::var("ARMADILLO_GROQ_MODEL")
+            .map(|value| value.trim().to_string())
+            .ok()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
 
-//     fn system_prompt() -> &'static str {
-//         r#"
-// You are an English language learning assistant.
+        let client = Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+            .map_err(|error| format!("failed to build HTTP client: {error}"))?;
 
-// Look ONLY at the provided image.
+        Ok(Self {
+            client,
+            api_key,
+            model,
+        })
+    }
 
-// There is a yellow marker with a small cross on the image.
-// The center of this yellow marker indicates the exact text
-// the user selected.
+    /// Один chat-completions вызов с той же JSON-схемой и системным
+    /// промптом, что и у локального провайдера — правила (русский язык,
+    /// enum-топик, форма слова) идентичны.
+    fn chat(&self, messages: &Value) -> Result<String, String> {
+        let body = json!({
+            "model": &self.model,
+            "messages": messages,
+            "temperature": 0.2,
+            "max_completion_tokens": 1024,
+            "reasoning_effort": "low",
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "lookup",
+                    "strict": true,
+                    "schema": lookup_format(),
+                },
+            },
+        });
 
-// Your task is extremely simple:
+        let response = self
+            .client
+            .post(GROQ_URL)
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .map_err(|error| format!("Groq request failed: {error}"))?;
 
-// 1. Find the yellow marker.
-// 2. Look directly underneath its CENTER.
-// 3. Identify the smallest meaningful English word or short
-//    phrase located there.
-// 4. Translate that word or phrase into natural Russian.
-// 5. Use the surrounding visible text to provide the sentence
-//    or line containing the selected word.
+        let status = response.status();
 
-// IMPORTANT:
+        if !status.is_success() {
+            let body = response.text().unwrap_or_default();
 
-// - The yellow marker in the image is the ONLY indication of
-//   what the user selected.
-// - Do NOT infer the selected word from the general topic.
-// - Do NOT choose a nearby word just because it is more
-//   semantically interesting.
-// - Do NOT choose text from somewhere else in the image.
-// - Do NOT choose a word merely because it appears near the
-//   marker.
-// - The selected word must be the text physically located
-//   directly underneath the CENTER of the yellow marker.
-// - Ignore the yellow marker itself; it is not text.
-// - The image may contain programming code, terminal output,
-//   identifiers, warnings, UI labels, or normal English text.
-//   All of these are valid targets.
-// - Do not use coordinates.
-// - Do not ask for coordinates.
-// - Coordinates are irrelevant.
-// - Do not mention coordinates in the answer.
-// - The answer MUST be based only on text visibly present in
-//   the image.
+            let hint = match status.as_u16() {
+                401 | 403 => " — проверь GROQ_API_KEY и что VPN пропускает этот трафик (RU-IP блокируется)",
+                429 => " — превышен лимит free-tier Groq",
+                _ => "",
+            };
 
-// For programming code:
+            let snippet: String = body.chars().take(200).collect();
 
-// - Keep the original code line in "sentence".
-// - Explain its meaning naturally in Russian in
-//   "sentence_translation".
-// - Translate the selected English identifier according to
-//   its normal English meaning when possible.
+            return Err(format!("Groq HTTP {status}{hint}: {snippet}"));
+        }
 
-// Return exactly one JSON object.
+        let parsed: GroqResponse = response
+            .json()
+            .map_err(|error| format!("Groq: invalid response JSON: {error}"))?;
 
-// The object MUST contain exactly these fields:
+        parsed
+            .choices
+            .into_iter()
+            .next()
+            .and_then(|choice| choice.message.content)
+            .ok_or_else(|| "Groq: empty choices".to_string())
+    }
 
-// {
-//   "sentence": "",
-//   "word": "",
-//   "sentence_translation": "",
-//   "word_translation": "",
-//   "synonyms": [],
-//   "part_of_speech": "",
-//   "topic": ""
-// }
+    /// chat + разбор ответа модели. Возвращает структуру и сырой контент
+    /// (контент нужен корректирующим повторам как реплика assistant).
+    fn request_lookup(&self, messages: Value) -> Result<(GroqLookup, String), String> {
+        let content = self.chat(&messages)?;
 
-// Return JSON only.
-// Do not use markdown.
-// Do not include explanations outside the JSON object.
-// "#
-//     }
-// }
+        let cleaned = strip_json_fences(&content);
 
-// #[derive(Debug, Deserialize)]
-// struct GroqResponse {
-//     choices: Vec<GroqChoice>,
-// }
+        let parsed: GroqLookup = serde_json::from_str(&cleaned)
+            .map_err(|error| format!("Groq: failed to parse lookup JSON: {error}"))?;
 
-// #[derive(Debug, Deserialize)]
-// struct GroqChoice {
-//     message: GroqMessage,
-// }
+        Ok((parsed, content))
+    }
+}
 
-// #[derive(Debug, Deserialize)]
-// struct GroqMessage {
-//     content: Option<String>,
-// }
+// =========================================================
+// API ENVELOPE
+// =========================================================
 
-// impl AiProvider for GroqProvider {
-//     fn lookup(&self, image_png: &[u8], prompt: &str) -> Result<LookupResult, String> {
-//         let api_key = Self::api_key()?;
+#[derive(Deserialize)]
+struct GroqResponse {
+    choices: Vec<GroqChoice>,
+}
 
-//         let encoded = general_purpose::STANDARD.encode(image_png);
+#[derive(Deserialize)]
+struct GroqChoice {
+    message: GroqMessage,
+}
 
-//         let image_url = format!("data:image/png;base64,{encoded}");
+#[derive(Deserialize)]
+struct GroqMessage {
+    content: Option<String>,
+}
 
-//         let request =
-//             serde_json::json!({
-//             "model": GROQ_MODEL,
+// =========================================================
+// MODEL OUTPUT
+// =========================================================
 
-//             "messages": [
-//                 {
-//                     "role": "system",
-//                     "content": Self::system_prompt()
-//                 },
-//                 {
-//                     "role": "user",
-//                     "content": [
-//                         {
-//                             "type": "text",
-//                             "text": "Translate the English word or short phrase directly under the center of the yellow marker."
-//                         },
-//                         {
-//                             "type": "image_url",
-//                             "image_url": {
-//                                 "url": image_url
-//                             }
-//                         }
-//                     ]
-//                 }
-//             ],
+/// Поля ответа модели — те же, что у локального провайдера (LocalLookup),
+/// поэтому пост-обработка (align/clean/canonicalize) полностью идентична.
+/// Все поля с default: деградация пустым значением вместо падения.
+#[derive(Debug, Deserialize)]
+struct GroqLookup {
+    #[serde(default)]
+    sentence_translation: String,
 
-//             "temperature": 0.0,
-//             "max_completion_tokens": 500,
-//             "reasoning_effort": "none",
+    #[serde(default)]
+    word_translation: String,
 
-//             "response_format": {
-//                 "type": "json_object"
-//             }
-//         });
+    #[serde(default)]
+    meaning: String,
 
-//         println!("Sending screenshot to Groq...");
+    #[serde(default)]
+    synonyms: serde_json::Value,
 
-//         let request_started = now_ms();
+    #[serde(default)]
+    part_of_speech: String,
 
-//         let response = self.client
-//             .post(GROQ_URL)
-//             .bearer_auth(api_key)
-//             .json(&request)
-//             .send()
-//             .map_err(|error| { format!("Groq request failed: {error}") })?;
+    #[serde(default)]
+    topic: serde_json::Value,
+}
 
-//         let status = response.status();
+// =========================================================
+// AI PROVIDER IMPL
+// =========================================================
 
-//         println!("Groq HTTP status: {status}");
+impl AiProvider for GroqProvider {
+    fn lookup(&self, sentence: &str, word: &str) -> Result<LookupResult, String> {
+        println!("[lookup/groq] word=\"{word}\", model={}", self.model);
 
-//         let response_text = response
-//             .text()
-//             .map_err(|error| { format!("Failed to read Groq response: {error}") })?;
+        let messages = json!([
+            {
+                "role": "system",
+                "content": &system_prompt()
+            },
+            {
+                "role": "user",
+                "content": format!("Target word: \"{word}\"\n\nContext sentence:\n{sentence}")
+            }
+        ]);
 
-//         let response_received = now_ms();
+        let (mut generated, content) = self.request_lookup(messages)?;
 
-//         println!(
-//             "Groq round-trip: sent at {request_started} ms, response received at {response_received} ms (took {})",
-//             response_received.saturating_sub(request_started)
-//         );
+        // Гарантия «перевод приходит на русском» — те же корректирующие
+        // повторы, что у локального провайдера (см. local.rs): правило
+        // и формулировка идентичны, различается только транспорт.
+        if !contains_cyrillic(&generated.sentence_translation) {
+            println!("sentence_translation came back without Russian text, retrying once");
 
-//         if !status.is_success() {
-//             return Err(format!("Groq API returned {status}: {response_text}"));
-//         }
+            let corrective = json!([
+                {
+                    "role": "system",
+                    "content": &system_prompt()
+                },
+                {
+                    "role": "user",
+                    "content": format!("Target word: \"{word}\"\n\nContext sentence:\n{sentence}")
+                },
+                {
+                    "role": "assistant",
+                    "content": &content
+                },
+                {
+                    "role": "user",
+                    "content": "Your sentence_translation was not in Russian. Reply with the same JSON object again, but sentence_translation must be the complete Russian translation of the context sentence."
+                }
+            ]);
 
-//         println!("=== GROQ API RESPONSE ===");
-//         println!("{response_text}");
-//         println!("=== END GROQ API RESPONSE ===");
+            match self.request_lookup(corrective) {
+                Ok((retried, _)) => generated = retried,
+                Err(retry_error) => println!("Correction retry failed: {retry_error}"),
+            }
+        }
 
-//         let elapsed_secs = response_received.saturating_sub(request_started) / 1000;
-//         println!(
-//             "Запрос выполнялся {} минут {} секунд",
-//             elapsed_secs / 60,
-//             elapsed_secs % 60
-//         );
+        if is_transliteration(word, &generated.word_translation)
+            || is_transliteration(word, &generated.sentence_translation)
+        {
+            println!("transliteration detected for word '{word}', retrying once");
 
-//         let groq_response: GroqResponse = serde_json
-//             ::from_str(&response_text)
-//             .map_err(|error| { format!("Failed to parse Groq API response: {error}") })?;
+            let corrective = json!([
+                {
+                    "role": "system",
+                    "content": &system_prompt()
+                },
+                {
+                    "role": "user",
+                    "content": format!("Target word: \"{word}\"\n\nContext sentence:\n{sentence}")
+                },
+                {
+                    "role": "assistant",
+                    "content": &content
+                },
+                {
+                    "role": "user",
+                    "content": "Your reply transliterated the English word into Russian letters (like \"Армадилло\" for \"armadillo\"). Such words do not exist in Russian. Reply with the same JSON object again, but word_translation and sentence_translation must use the REAL Russian word (\"armadillo\" is \"броненосец\"). Never write English words in Cyrillic letters."
+                }
+            ]);
 
-//         let content = groq_response.choices
-//             .first()
-//             .and_then(|choice| choice.message.content.as_ref())
-//             .ok_or_else(|| { "Groq response contains no message content".to_string() })?;
+            match self.request_lookup(corrective) {
+                Ok((retried, _)) => generated = retried,
+                Err(retry_error) => println!("Transliteration retry failed: {retry_error}"),
+            }
+        }
 
-//         println!("=== GROQ CONTENT ===");
-//         println!("{content}");
-//         println!("=== END GROQ CONTENT ===");
+        // Валидация согласованности — те же корректирующие повторы, что у
+        // локального провайдера (см. local.rs): правило и формулировка
+        // идентичны, различается только транспорт.
+        if !word_translation_is_connected(
+            &generated.word_translation,
+            &generated.sentence_translation,
+        ) {
+            println!(
+                "word_translation '{}' is unrelated to sentence_translation, retrying once",
+                generated.word_translation
+            );
 
-//         serde_json
-//             ::from_str(content)
-//             .map_err(|error| {
-//                 format!("Failed to parse lookup JSON: {}\nContent: {}", error, content)
-//             })
-//     }
-// }
+            let corrective = json!([
+                {
+                    "role": "system",
+                    "content": &system_prompt()
+                },
+                {
+                    "role": "user",
+                    "content": format!("Target word: \"{word}\"\n\nContext sentence:\n{sentence}")
+                },
+                {
+                    "role": "assistant",
+                    "content": &content
+                },
+                {
+                    "role": "user",
+                    "content": format!("Your word_translation is unrelated to your sentence_translation. The target word is \"{word}\". Reply with the same JSON object again, but word_translation must be the natural Russian translation of \"{word}\" as used in the context sentence, in the same grammatical form as it appears inside sentence_translation, so that this exact string occurs inside sentence_translation. The meaning must explain \"{word}\" itself, not another word from the sentence.")
+                }
+            ]);
+
+            match self.request_lookup(corrective) {
+                Ok((retried, _)) => generated = retried,
+                Err(retry_error) => println!("Consistency retry failed: {retry_error}"),
+            }
+        }
+
+        let sentence_translation = generated.sentence_translation;
+
+        let word_translation =
+            align_word_translation(&generated.word_translation, &sentence_translation);
+
+        Ok(LookupResult {
+            word: word.to_string(),
+            meaning: generated.meaning,
+            sentence_translation,
+            word_translation,
+            synonyms: clean_synonyms(word, synonyms_to_vec(&generated.synonyms)),
+            part_of_speech: generated.part_of_speech,
+            topic: canonicalize_topic(&topic_to_string(&generated.topic)),
+        })
+    }
+}
+
+// ============================================================================
+// Гибрид: Groq основной, локальная Ollama — fallback
+// ============================================================================
+
+/// Облачный Groq как основной источник, локальная Ollama — страховка.
+///
+/// Groq недоступен по множеству независимых причин (RU-IP без VPN,
+/// исчерпанный free-лимит 429, таймаут, сбой сети, смена модели на стороне
+/// API), поэтому ЛЮБАЯ ошибка primary перекладывается на local:
+/// пользователь всегда получает карточку, worst case — как раньше.
+pub struct HybridProvider {
+    primary: Box<dyn AiProvider>,
+    fallback: Box<dyn AiProvider>,
+}
+
+impl HybridProvider {
+    pub fn new(primary: Box<dyn AiProvider>, fallback: Box<dyn AiProvider>) -> Self {
+        Self { primary, fallback }
+    }
+}
+
+impl AiProvider for HybridProvider {
+    fn lookup(&self, context: &str, clicked_word: &str) -> Result<LookupResult, String> {
+        match self.primary.lookup(context, clicked_word) {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                println!("[provider] Groq недоступен ({error}) — fallback на локальную Ollama");
+
+                self.fallback.lookup(context, clicked_word)
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Фабрика провайдера
+// ============================================================================
+
+/// Выбор провайдера по окружению:
+///
+/// - `GROQ_API_KEY` задан → гибрид «Groq + локальная Ollama»;
+/// - ключа нет → только локальная Ollama (прежнее поведение);
+/// - `ARMADILLO_PROVIDER=local` принудительно выключает Groq даже при ключе.
+pub fn build_provider() -> std::sync::Arc<dyn AiProvider> {
+    let local: Box<dyn AiProvider> =
+        Box::new(LocalProvider::new().expect("failed to init local Ollama provider"));
+
+    let groq_allowed = matches!(
+        std::env::var("ARMADILLO_PROVIDER").ok().as_deref(),
+        None | Some("") | Some("groq")
+    );
+
+    let groq = if groq_allowed {
+        // Нет ключа / битый клиент — просто остаёмся на локальной модели.
+        GroqProvider::new().ok()
+    } else {
+        None
+    };
+
+    match groq {
+        Some(groq) => {
+            println!(
+                "[provider] primary: Groq ({}) | fallback: local Ollama",
+                groq.model
+            );
+
+            std::sync::Arc::new(HybridProvider::new(Box::new(groq), local))
+        }
+        None => {
+            println!("[provider] primary: local Ollama (GROQ_API_KEY не задан)");
+
+            std::sync::Arc::from(local)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct StubPrimaryOk;
+
+    impl AiProvider for StubPrimaryOk {
+        fn lookup(&self, _context: &str, _clicked_word: &str) -> Result<LookupResult, String> {
+            Ok(LookupResult {
+                word: "primary".to_string(),
+                sentence_translation: "Предложение от primary.".to_string(),
+                word_translation: "слово".to_string(),
+                meaning: "It means the thing from primary.".to_string(),
+                synonyms: vec!["near".to_string()],
+                part_of_speech: "noun".to_string(),
+                topic: "Работа и профессии".to_string(),
+            })
+        }
+    }
+
+    struct StubAlwaysFails {
+        message: &'static str,
+    }
+
+    impl AiProvider for StubAlwaysFails {
+        fn lookup(&self, _context: &str, _clicked_word: &str) -> Result<LookupResult, String> {
+            Err(self.message.to_string())
+        }
+    }
+
+    /// Primary ответил — fallback не должен вызываться вовсе
+    /// (он в тесте всегда падает: если бы вызывался, результат был бы Err).
+    #[test]
+    fn hybrid_uses_primary_without_touching_fallback() {
+        let hybrid = HybridProvider::new(
+            Box::new(StubPrimaryOk),
+            Box::new(StubAlwaysFails {
+                message: "fallback был вызван — так нельзя",
+            }),
+        );
+
+        let result = hybrid.lookup("Some context.", "word").expect("primary ok");
+
+        assert_eq!(result.word, "primary");
+    }
+
+    /// Primary упал → ответ должен прийти от fallback.
+    #[test]
+    fn hybrid_falls_back_when_primary_errors() {
+        let hybrid = HybridProvider::new(
+            Box::new(StubAlwaysFails {
+                message: "Groq offline (403 за RU-IP)",
+            }),
+            Box::new(StubPrimaryOk),
+        );
+
+        let result = hybrid.lookup("Some context.", "word").expect("fallback ok");
+
+        assert_eq!(result.word, "primary");
+    }
+
+    /// Живой прогон Groq: требует GROQ_API_KEY и системный VPN
+    /// (запросы с RU-IP Groq отклоняет с 403 — см. build_provider).
+    ///
+    /// Запуск:
+    ///   cargo test --lib -- --ignored real_lookup_groq_smoke --nocapture
+    #[test]
+    #[ignore = "требует GROQ_API_KEY и VPN: реальный вызов Groq"]
+    fn real_lookup_groq_smoke() {
+        let provider = GroqProvider::new().expect("нет GROQ_API_KEY или клиент не собрался");
+
+        let started = std::time::Instant::now();
+
+        let result = provider
+            .lookup("More instructions", "more")
+            .expect("lookup должен отработать");
+
+        println!("lookup took {:.2} s", started.elapsed().as_secs_f64());
+        println!("sentence_translation: {}", result.sentence_translation);
+        println!("word_translation: {}", result.word_translation);
+        println!("meaning: {}", result.meaning);
+        println!("topic: {}", result.topic);
+        println!("part_of_speech: {}", result.part_of_speech);
+        println!("synonyms: {:?}", result.synonyms);
+
+        let has_cyrillic = result
+            .sentence_translation
+            .chars()
+            .any(|ch| ('\u{0400}'..='\u{04FF}').contains(&ch));
+
+        assert!(has_cyrillic, "перевод предложения должен быть на русском");
+    }
+}

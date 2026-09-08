@@ -73,6 +73,27 @@ impl OcrEngine {
             .filter(|value| (1..=64).contains(value))
             .unwrap_or(OCR_REC_BATCH_DEFAULT);
 
+        // Параметры детекции, подобранные под скриншоты рабочего стола
+        // (тёмные темы, стилизованные субтитры), с env-переопределением
+        // для экспериментов без перекомпиляции.
+        //
+        // unclip_ratio: расширение полигонов DB-детектора. Дефолт крейта
+        // 1.6 слишком тесный для стилизованных/курсивных шрифтов — рамка
+        // срезает крайние буквы («Scisso» вместо «Scissors», «womar»
+        // вместо «woman»), и rec получает обрубленное слово. 2.0 оставляет
+        // место свисающим элементам глифов.
+        //
+        // box_thresh: минимальная уверенность кандидата детекции. Дефолт
+        // 0.5 выбрасывал тусклые строки субтитров на тёмном фоне целиком
+        // («не видит все слова»).
+        //
+        // text_score: финальный фильтр строк по средней уверенности rec.
+        // Дефолт 0.5 добивал слабо распознанные, но реальные строки;
+        // мусор ниже отсекается нашим is_acceptable_ocr_text.
+        let det_unclip = env_f32("ARMADILLO_OCR_DET_UNCLIP", 2.0, 1.0, 4.0);
+        let det_box_thresh = env_f32("ARMADILLO_OCR_DET_BOX_THRESH", 0.4, 0.1, 0.9);
+        let rec_text_score = env_f32("ARMADILLO_OCR_TEXT_SCORE", 0.4, 0.1, 0.9);
+
         // Провайдер исполнения: по умолчанию CPU.
         // DirectML включается только явно: ARMADILLO_OCR_EP=dml
         //
@@ -112,6 +133,16 @@ impl OcrEngine {
                 rec.batch_size = rec_batch_size;
             }
 
+            // Детекция и фильтр строк: см. комментарий к env_f32-переменным
+            // выше — дефолты крейта настроены на сканы документов, а не на
+            // тёмные темы и стилизованные субтитры.
+            if let Some(det) = config.det.as_mut() {
+                det.unclip_ratio = det_unclip;
+                det.box_thresh = det_box_thresh;
+            }
+
+            config.text_score = rec_text_score;
+
             config
                 // Скриншоты всегда правильной ориентации: классификатор
                 // поворота текстовых строк не нужен и только тратит
@@ -139,7 +170,7 @@ impl OcrEngine {
         };
 
         println!(
-            "OCR inference: intra_threads={intra_threads}, rec_batch={rec_batch_size}, pipeline=det+rec, ep={provider_label}"
+            "OCR inference: intra_threads={intra_threads}, rec_batch={rec_batch_size}, pipeline=det+rec, ep={provider_label}, det: unclip={det_unclip} box_thresh={det_box_thresh}, text_score={rec_text_score}"
         );
 
         Ok(Self {
@@ -216,8 +247,33 @@ impl OcrEngine {
             append_word_boxes(&mut boxes, text, line.bbox.points, line.score);
         }
 
+        // Не-латинский мусор выбрасывается ДО кэша и hit-test'а: клик рядом
+        // с русской строкой не должен цеплять её ближайшим боксом.
+        let before_filter = boxes.len();
+
+        boxes.retain(|ocr_box| is_acceptable_ocr_text(&ocr_box.text));
+
+        if boxes.len() != before_filter {
+            println!(
+                "OCR filter: dropped {} non-Latin/garbage boxes",
+                before_filter - boxes.len()
+            );
+        }
+
         Ok(boxes)
     }
+}
+
+/// Читает f32-переменную окружения с проверкой диапазона.
+///
+/// Вне диапазона (и при непарсуемом значении) тихо берётся дефолт —
+/// опечатка в env не должна ронять запуск OCR-движка.
+fn env_f32(name: &str, default: f32, min: f32, max: f32) -> f32 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|value| value.is_finite() && (min..=max).contains(value))
+        .unwrap_or(default)
 }
 
 /// Хеш RGB-буфера кропа для кэша результатов.
@@ -464,6 +520,137 @@ fn split_words(text: &str) -> Vec<Word<'_>> {
     words
 }
 
+// ============================================================================
+// NON-LATIN FILTER
+// ============================================================================
+
+/// Фильтр мусора в выдаче rec-модели.
+///
+/// Модель PPOCRV5_EN_MOBILE знает ТОЛЬКО латиницу. Всё прочее на кадре —
+/// русские субтитры, CJK-иероглифы, арабица — она перемалывает в мусор,
+/// который затем ломает сборку предложения (метрики ocr_metrics_saved_crops:
+/// «Не сбегал бы» -> "He cgeran 6bl", «что-то» -> "4TO-TO", «НОВОЕ» -> "NOBO").
+///
+/// Два правила:
+///
+/// 1. Любая не-латинская буква Unicode (кириллица, CJK, арабица, ...) —
+///    валидного английского текста с таким символом не бывает.
+/// 2. Цифра, прижатая к букве внутри токена ("6bl", "cgeran6bl", "4TO-TO") —
+///    фирменный след транслитерации кириллицы lookalike-символами. Легитимные
+///    алфавитно-цифровые токены ("2nd", "MP3", "4K", "1080p") разрешены
+///    white-list'ом (см. alphanumeric_token_is_allowed).
+///
+/// Известное ограничение: чисто прописной мусор вида "NOBO" / "4TO"
+/// неотличим от аббревиатур ("MP3", "4K") и проходит фильтр — LLM
+/// устойчив к единичному такому токену в контексте.
+fn is_acceptable_ocr_text(text: &str) -> bool {
+    !has_non_latin_letters(text) && !has_embedded_digits(text)
+}
+
+/// Буквы латиницы, включая акцентированные (café, naïve, señor).
+fn is_latin_letter(ch: char) -> bool {
+    ch.is_ascii_alphabetic()
+        || matches!(ch, '\u{00C0}'..='\u{00FF}' | '\u{0100}'..='\u{024F}')
+}
+
+fn has_non_latin_letters(text: &str) -> bool {
+    text.chars().any(|ch| ch.is_alphabetic() && !is_latin_letter(ch))
+}
+
+fn has_embedded_digits(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+
+    for (index, &ch) in chars.iter().enumerate() {
+        if !ch.is_ascii_digit() {
+            continue;
+        }
+
+        let previous_is_letter =
+            index > 0 && chars[index - 1].is_ascii_alphabetic();
+
+        let next_is_letter =
+            index + 1 < chars.len() && chars[index + 1].is_ascii_alphabetic();
+
+        if (previous_is_letter || next_is_letter)
+            && !alphanumeric_token_is_allowed(&chars)
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// White-list легитимных алфавитно-цифровых токенов.
+///
+/// Токен должен целиком состоять из опционального буквенного префикса,
+/// цифрового ядра и опционального буквенного суффикса:
+///
+///   "MP3", "F15", "v2"  — буквы спереди, цифры сзади;
+///   "1080p", "3D"       — 2+ цифры спереди, 0-2 буквы сзади;
+///   "4K", "4TO"         — одна цифра спереди + ПРОПИСНЫЕ буквы сзади
+///                         ("6bl" с строчным суффиксом не проходит);
+///   "2nd", "3rd", "4th" — порядковые.
+///
+/// Всё смешанное сверх схемы ("cgeran6bl", "4TO-TO") — мусор.
+fn alphanumeric_token_is_allowed(chars: &[char]) -> bool {
+    let mut index = 0;
+
+    let mut letters_before = 0;
+
+    while index < chars.len() && chars[index].is_ascii_alphabetic() {
+        letters_before += 1;
+        index += 1;
+    }
+
+    let mut digits = 0;
+
+    while index < chars.len() && chars[index].is_ascii_digit() {
+        digits += 1;
+        index += 1;
+    }
+
+    let mut letters_after = 0;
+
+    while index < chars.len() && chars[index].is_ascii_alphabetic() {
+        letters_after += 1;
+        index += 1;
+    }
+
+    if index != chars.len() {
+        return false;
+    }
+
+    if letters_before > 0 && digits > 0 && letters_after == 0 {
+        return true;
+    }
+
+    if letters_before == 0 && digits >= 2 && letters_after <= 2 {
+        return true;
+    }
+
+    if letters_before == 0
+        && digits == 1
+        && letters_after >= 1
+        && letters_after <= 3
+        && chars[chars.len() - letters_after..]
+            .iter()
+            .all(|ch| ch.is_ascii_uppercase())
+    {
+        return true;
+    }
+
+    if letters_before == 0 && digits >= 1 && letters_after <= 2 {
+        let suffix: String = chars[chars.len() - letters_after..].iter().collect();
+
+        if matches!(suffix.to_ascii_lowercase().as_str(), "st" | "nd" | "rd" | "th") {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn make_box(points: [[f32; 2]; 4], confidence: f32, text: String) -> OcrBox {
     OcrBox {
         points: [
@@ -643,5 +830,304 @@ mod tests {
             started.elapsed().as_millis(),
             boxes.len()
         );
+    }
+
+    /// Печатает метрики распознавания одного изображения.
+    ///
+    /// Два среза: word-боксы из recognize() (как их видит пайплайн lookup)
+    /// и line-уровень с confidence из run_image_timed (как их вернул детектор).
+    /// Расхождение между «на изображении видно N строк» и напечатанным —
+    /// прямой сигнал о проблеме детекции; пустой/обрывочный text строки —
+    /// ошибка recognition.
+    fn ocr_report(label: &str, engine: &mut OcrEngine, image: &Image, max_lines: usize) {
+        let started = std::time::Instant::now();
+
+        let boxes = engine.recognize(image).expect("OCR failed");
+
+        let recognize_ms = started.elapsed().as_millis();
+
+        let rgb = image::RgbImage::from_raw(image.width, image.height, image.data.clone())
+            .expect("invalid image buffer");
+
+        let timed = engine
+            .engine
+            .run_image_timed(&rgb)
+            .expect("timed OCR failed");
+
+        println!(
+            "--- {label}: {}x{} | recognize {recognize_ms} ms, {} word boxes | timed: pipeline {:.0} ms, det prep {:.0} inf {:.0} post {:.0} | crop {:.0} | rec prep {:.0} inf {:.0} decode {:.0} ms | {} lines ---",
+            image.width,
+            image.height,
+            boxes.len(),
+            timed.timings.pipeline_preprocess_ms,
+            timed.timings.det_preprocess_ms,
+            timed.timings.det_inference_ms,
+            timed.timings.det_postprocess_ms,
+            timed.timings.crop_ms,
+            timed.timings.rec_preprocess_ms,
+            timed.timings.rec_inference_ms,
+            timed.timings.rec_decode_ms,
+            timed.output.lines.len(),
+        );
+
+        for (index, line) in timed.output.lines.iter().enumerate() {
+            if index == max_lines {
+                println!(
+                    "  ... (+{} more lines, total {})",
+                    timed.output.lines.len() - max_lines,
+                    timed.output.lines.len()
+                );
+
+                break;
+            }
+
+            println!("  [{:.3}] {}", line.score, line.text.trim());
+        }
+    }
+
+    /// Фильтр текста: латиница (включая акценты, числа и легитимные
+    /// алфавитно-цифровые токены) проходит; Unicode не-латиницы и
+    /// транслитерированная кириллица lookalike-символами — нет.
+    #[test]
+    fn text_filter_separates_latin_from_garbage() {
+        // Латиница, пунктуация, числа, акцентированная латиница, white-list.
+        for text in [
+            "dodge",
+            "don't",
+            "10:30",
+            "70%",
+            "café",
+            "naïve",
+            "2nd",
+            "MP3",
+            "F15",
+            "4K",
+            "1080p",
+            "1st",
+            "v2",
+            "3D",
+        ] {
+            assert!(is_acceptable_ocr_text(text), "«{text}» должно остаться");
+        }
+
+        // Прямая не-латиница Unicode: EN-модель не может её выдать осмысленно.
+        for text in ["Привет", "мир?", "日本語", "한국어", "مرحبا"] {
+            assert!(!is_acceptable_ocr_text(text), "«{text}» должно отфильтроваться");
+        }
+
+        // Транслитерированная кириллица lookalike-символами (реальный вывод
+        // EN-модели на русских субтитрах, см. метрики). Чисто прописной мусор
+        // вида "NOBO"/"4TO" неотличим от аббревиатур и остаётся (задокументировано).
+        for text in ["6bl", "cgeran6bl", "4TO-TO"] {
+            assert!(!is_acceptable_ocr_text(text), "«{text}» должно отфильтроваться");
+        }
+    }
+
+    /// Метрики OCR на сохранённых реальных кропах (screenshots/ocr_crop_*.png).
+    ///
+    /// Воспроизводит «на кропе видны хорошие субтитры, а OCR вернул одно
+    /// слово»: печатает ВСЕ найденные строки с confidence и тайминги по фазам.
+    ///
+    /// Запуск:
+    ///   cargo test --lib -- --ignored ocr_metrics_saved_crops --nocapture
+    ///
+    /// Сколько последних кропов брать (по умолчанию 4):
+    ///   ARMADILLO_OCR_METRICS_CROPS=8 cargo test ...
+    #[test]
+    #[ignore]
+    fn ocr_metrics_saved_crops() {
+        let count = std::env::var("ARMADILLO_OCR_METRICS_CROPS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(4);
+
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("screenshots");
+
+        let mut crops: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
+            .expect("screenshots dir missing")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .map_or(false, |name| name.to_string_lossy().starts_with("ocr_crop_"))
+            })
+            .collect();
+
+        crops.sort_by_key(|path| path.metadata().unwrap().modified().unwrap());
+
+        let crops: Vec<std::path::PathBuf> = if crops.len() > count {
+            crops[crops.len() - count..].to_vec()
+        } else {
+            crops
+        };
+
+        assert!(!crops.is_empty(), "no ocr_crop_*.png in {}", dir.display());
+
+        let mut engine = OcrEngine::new(model_dir()).expect("failed to init OCR engine");
+
+        // Прогрев сессий ONNX на первом кропе, чтобы метрики каждого кропа
+        // были steady-state (первый инференс платит за аллокацию буферов).
+        let first = image::open(&crops[0])
+            .unwrap_or_else(|error| panic!("failed to open {}: {error}", crops[0].display()))
+            .to_rgb8();
+
+        let _ = engine
+            .engine
+            .run_image_timed(&first)
+            .expect("warm-up OCR failed");
+
+        for path in &crops {
+            let rgb = image::open(path)
+                .unwrap_or_else(|error| panic!("failed to open {}: {error}", path.display()))
+                .to_rgb8();
+
+            let image = Image {
+                width: rgb.width(),
+                height: rgb.height(),
+                data: rgb.into_raw(),
+            };
+
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            ocr_report(&name, &mut engine, &image, usize::MAX);
+        }
+    }
+
+    /// Метрики OCR ПОЛНОГО экрана против центрального кропа того же кадра.
+    ///
+    /// Вопрос эксперимента: находит ли детектор больше текста на полном
+    /// кадре, чем в области вокруг клика. Полный кадр при стороне > 2000 px
+    /// дополнительно сжимается pipeline-ресайзом rapidocr
+    /// (RapidOcrConfig::min_side_len..max_side_len) — сравнивать нужно не
+    /// только число строк, но и текст.
+    ///
+    /// Запуск:
+    ///   cargo test --lib -- --ignored ocr_metrics_fullscreen_vs_region --nocapture
+    ///
+    /// Размер региона (по умолчанию 1440x900, как OCR_CROP_* в capture.rs):
+    ///   ARMADILLO_OCR_METRICS_CROP_W=1920 ARMADILLO_OCR_METRICS_CROP_H=1080 cargo test ...
+    #[test]
+    #[ignore]
+    fn ocr_metrics_fullscreen_vs_region() {
+        use screenshots::Screen;
+
+        let screen = Screen::from_point(100, 100).expect("failed to find screen");
+
+        let display = screen.display_info;
+
+        println!(
+            "Display: {}x{} (scale x{})",
+            display.width, display.height, display.scale_factor
+        );
+
+        let shot = screen.capture().expect("failed to capture screen");
+
+        let width = shot.width() as usize;
+        let height = shot.height() as usize;
+
+        let pixels = shot.as_raw();
+
+        assert_eq!(pixels.len(), width * height * 4, "unexpected frame format");
+
+        // BGRA -> RGB полного кадра (то же преобразование, что в capture.rs).
+        let mut full_rgb = Vec::with_capacity(width * height * 3);
+
+        for pixel in pixels.chunks_exact(4) {
+            full_rgb.push(pixel[2]); // R
+            full_rgb.push(pixel[1]); // G
+            full_rgb.push(pixel[0]); // B
+        }
+
+        let full = Image {
+            width: width as u32,
+            height: height as u32,
+            data: full_rgb,
+        };
+
+        // Кадр сохраняется для визуальной сверки «что видел OCR».
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("screenshots");
+
+        let _ = std::fs::create_dir_all(&dir);
+
+        let frame_path = dir.join(format!(
+            "ocr_fullscreen_{}.png",
+            crate::app_core::lookup::time::now_ms()
+        ));
+
+        if let Ok(png) = crate::app_core::lookup::image::encode_png(&full) {
+            let _ = std::fs::write(&frame_path, png);
+
+            println!("Full frame saved: {}", frame_path.display());
+        }
+
+        let crop_width = std::env::var("ARMADILLO_OCR_METRICS_CROP_W")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(1440)
+            .min(width);
+
+        let crop_height = std::env::var("ARMADILLO_OCR_METRICS_CROP_H")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(900)
+            .min(height);
+
+        let left = (width - crop_width) / 2;
+        let top = (height - crop_height) / 2;
+
+        // Центральный кроп из ТОГО ЖЕ кадра — как в capture_screen.
+        let mut region_rgb = Vec::with_capacity(crop_width * crop_height * 3);
+
+        for row in top..top + crop_height {
+            let row_start = (row * width + left) * 4;
+
+            let row_pixels = &pixels[row_start..row_start + crop_width * 4];
+
+            for pixel in row_pixels.chunks_exact(4) {
+                region_rgb.push(pixel[2]); // R
+                region_rgb.push(pixel[1]); // G
+                region_rgb.push(pixel[0]); // B
+            }
+        }
+
+        let region = Image {
+            width: crop_width as u32,
+            height: crop_height as u32,
+            data: region_rgb,
+        };
+
+        let mut engine = OcrEngine::new(model_dir()).expect("failed to init OCR engine");
+
+        // Прогрев обеих форм входа: полный кадр и кроп дают разные формы
+        // тензора детектора, каждая первая итерация платит за аллокации.
+        // run_image_timed используется напрямую, чтобы не трогать кэш recognize.
+        let region_rgb_image = image::RgbImage::from_raw(region.width, region.height, region.data.clone())
+            .expect("invalid region buffer");
+
+        let full_rgb_image = image::RgbImage::from_raw(full.width, full.height, full.data.clone())
+            .expect("invalid full buffer");
+
+        let _ = engine
+            .engine
+            .run_image_timed(&region_rgb_image)
+            .expect("warm-up OCR failed");
+
+        let _ = engine
+            .engine
+            .run_image_timed(&full_rgb_image)
+            .expect("warm-up OCR failed");
+
+        ocr_report("FULL SCREEN", &mut engine, &full, 14);
+
+        ocr_report("CENTER REGION", &mut engine, &region, usize::MAX);
     }
 }

@@ -7,9 +7,14 @@ use std::{
 use tauri::AppHandle;
 
 use crate::app_core::{
-    input::{event::InputEvent, hotkey::HotkeyHook, mouse::MouseHook}, lookup::{ 
-        pipeline::ClickPipeline, provider::{_trait::AiProvider, LocalProvider},
-    }, ocr::engine::OcrEngine, overlay::manager::OverlayManager,
+    input::{
+        event::InputEvent, hotkey::HotkeyHook, keyboard::KeyboardHook, mouse::MouseHook,
+    },
+    lookup::{
+        pipeline::ClickPipeline, provider::{_trait::AiProvider, build_provider, LocalProvider},
+    },
+    ocr::engine::OcrEngine,
+    overlay::manager::OverlayManager,
 };
 
 /// Runtime приложения.
@@ -20,6 +25,7 @@ use crate::app_core::{
 pub struct AppRuntime {
     _mouse: MouseHook,
     _hotkey: HotkeyHook,
+    _keyboard: KeyboardHook,
 }
 
 impl AppRuntime {
@@ -41,14 +47,12 @@ impl AppRuntime {
         // AI PROVIDER
         // =================================================
         //
-        // Сейчас используем LocalProvider.
-        //
-        // Другие провайдеры остаются доступными и могут
-        // быть подключены позже.
+        // build_provider: GROQ_API_KEY установлен → облачный Groq
+        // с автоматическим локальным fallback'ом, иначе — чистая
+        // локальная Ollama (как раньше). Выбор печатается в консоль.
         //
 
-        let provider: Arc<dyn AiProvider> =
-            Arc::new(LocalProvider::new().expect("Failed to create Local provider"));
+        let provider: Arc<dyn AiProvider> = build_provider();
 
         // =================================================
         // AI WARM-UP
@@ -130,6 +134,15 @@ impl AppRuntime {
         let mouse = MouseHook::start(tx.clone()).expect("Failed to start mouse hook");
 
         // =================================================
+        // KEYBOARD HOOK
+        // =================================================
+        //
+        // Ловим все нажатия клавиш: всё кроме Ctrl+P закрывает оверлей.
+        // Ctrl+P продолжает обрабатывать RegisterHotKey в HotkeyHook.
+
+        let keyboard = KeyboardHook::start(tx.clone()).expect("Failed to start keyboard hook");
+
+        // =================================================
         // HOTKEY HOOK
         // =================================================
 
@@ -151,6 +164,7 @@ impl AppRuntime {
 
         Self {
             _mouse: mouse,
+            _keyboard: keyboard,
             _hotkey: hotkey,
         }
     }
