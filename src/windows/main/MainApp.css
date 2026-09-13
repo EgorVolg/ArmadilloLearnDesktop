@@ -8,9 +8,9 @@
   margin: 0 auto;
   padding: 20px 44px 76px;
   background: var(--bg-primary);
-  gap: 20px;
+  gap: 16px;
   overflow: hidden;
-  height: 100vh;
+  max-height: 100vh;
 
   @media (max-width: 1200px) {
     padding: 20px 20px 36px;

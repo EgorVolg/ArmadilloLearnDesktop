@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowDropDown, ArrowDropUp, Image } from "../../../../assets";
+import { ArrowDropDown, ArrowDropUp } from "../../../../assets";
 import Test from "../../../../assets/test.png";
 import "./MainContent.css";
 
