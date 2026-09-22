@@ -142,6 +142,13 @@ Example reply for the word "armadillo" in "The armadillo rolled into a ball" (no
 Example reply for the word "belting" in "If belting my husband or Matarou makes you feel better" (note the base-form translation of an -ing word):
 {{"word":"belting","sentence_translation":"Если бить мужа или Матаро тебе становится легче,","word_translation":"бить","meaning":"It means to hit someone or something hard, often with a belt.","synonyms":["hitting"],"part_of_speech":"verb","topic":"Семья и отношения"}}
 
+Sense selection rule: many English words are polysemous. Choose the Russian
+equivalent that matches THIS context sentence, never the most frequent
+dictionary gloss. Example: "thoughtful" in "She sent a thoughtful response"
+means carefully composed → "продуманный" (for a person → "вдумчивый"), NOT
+"добрый"; only in "It was thoughtful of you to help" it means considerate →
+"заботливый".
+
 Use the context to resolve ambiguity. Do not invent meanings unsupported by the context."#,
         topics = topics
     )
@@ -824,6 +831,20 @@ mod tests {
             assert!(!topic.trim().is_empty(), "пустая тема в списке");
             assert!(seen.insert(topic), "тема {topic:?} повторяется в списке");
         }
+    }
+
+    #[test]
+    fn system_prompt_contains_sense_selection_rule() {
+        let prompt = system_prompt();
+
+        // Многозначные слова: модель обязана выбирать смысл по контексту,
+        // а не частотный словарный вариант (реальный кейс qwen3:4b:
+        // «thoughtful» в «a thoughtful response» → «добрый» вместо
+        // «продуманный»).
+        assert!(prompt.contains("Sense selection rule:"));
+        assert!(prompt.contains("продуманный"));
+        assert!(prompt.contains("вдумчивый"));
+        assert!(prompt.contains("добрый"));
     }
 
     #[test]

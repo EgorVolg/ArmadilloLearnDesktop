@@ -1,6 +1,6 @@
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{mpsc::Receiver, Arc, Mutex},
     time::Instant,
 };
 
@@ -38,11 +38,22 @@ impl ClickPipeline {
         }
     }
 
-    pub fn process(&mut self, event: InputEvent) {
+    pub fn process(&mut self, event: InputEvent, rx: &Receiver<InputEvent>) {
         match event {
             InputEvent::Dismiss => {
-                // Любое «другое» нажатие клавиши/кнопки мыши закрывает оверлей.
+                // Нажатие любой клавиши закрывает оверлей.
                 if self.visible {
+                    self.overlay.hide();
+                    self.visible = false;
+                }
+            }
+
+            InputEvent::DismissClick { x, y } => {
+                // Клик другой кнопкой мыши закрывает оверлей — но НЕ если
+                // клик пришёлся на сам оверлей: иначе перетаскивание окна
+                // (drag-зона) и клики по его кнопкам были бы невозможны,
+                // оверлей прятался бы на mouse-down.
+                if self.visible && !self.overlay.contains(x, y) {
                     self.overlay.hide();
                     self.visible = false;
                 }
@@ -51,16 +62,11 @@ impl ClickPipeline {
             InputEvent::Lookup { x, y } => {
                 let click_at = Instant::now();
 
-                // Клик по самому оверлею закрывает его.
-                if self.visible && self.overlay.contains(x, y) {
-                    self.overlay.hide();
-                    self.visible = false;
-                    return;
-                }
-
-                // Клик мимо оверлея — запрос нового слова: прячем текущий
-                // оверлей сразу, чтобы при ошибке поиска он не висел с
-                // устаревшим текстом; при успехе покажется на новом месте.
+                // Хоткей / средняя кнопка мыши всегда закрывают текущий
+                // оверлей (в том числе клик по самому оверлею) и тут же
+                // ищут слово под новыми координатами — чтобы при ошибке
+                // поиска он не висел с устаревшим текстом, а при успехе
+                // показался на новом месте.
                 if self.visible {
                     self.overlay.hide();
                     self.visible = false;
@@ -85,6 +91,15 @@ impl ClickPipeline {
                         let _ = self.app.emit("lookup-error", error);
                     }
                 }
+
+                // lookup() выше блокирует этот поток на время OCR + запроса
+                // к AI (может занять несколько секунд). Клики/клавиши,
+                // накопившиеся в очереди за это время, не должны влиять на
+                // только что показанный (или так и не показанный) оверлей —
+                // отбрасываем их. Пока идёт загрузка, пользовательский ввод
+                // никак не действует на оверлей; как только он загрузился,
+                // обычные клики снова его закрывают.
+                while rx.try_recv().is_ok() {}
             }
         }
     }

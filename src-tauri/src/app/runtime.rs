@@ -154,7 +154,7 @@ impl AppRuntime {
 
         thread::spawn(move || {
             while let Ok(event) = rx.recv() {
-                pipeline.process(event);
+                pipeline.process(event, &rx);
             }
         });
 

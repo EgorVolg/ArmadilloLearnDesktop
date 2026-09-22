@@ -10,7 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
+    "windows": [  
       {
         "title": "armadillo-learn-desktop",
         "label": "overlay",

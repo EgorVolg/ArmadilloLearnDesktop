@@ -116,7 +116,8 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: 
                 let is_ctrl_p = info.vkCode == VK_P.0 as u32 && ctrl_pressed();
 
                 if !is_ctrl_p {
-                    // Любая другая клавиша — скрываем оверлей.
+                    // Любая другая клавиша (включая Escape, VK_ESCAPE) —
+                    // скрываем оверлей.
                     emit(InputEvent::Dismiss);
                 }
             }

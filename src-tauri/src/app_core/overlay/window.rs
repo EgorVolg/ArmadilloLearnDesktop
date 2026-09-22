@@ -35,6 +35,23 @@ impl OverlayWindow {
         let _ = window.show();
     }
 
+    pub fn hide(&self) {
+        let window = self.window();
+
+        // show() выше НЕ идёт через обычный window.show() — оно поднимает
+        // окно напрямую через Win32 ShowWindow(SW_SHOWNA), в обход
+        // внутреннего состояния tao/winit. Если здесь звать обычный
+        // window.hide(), tao может решить, что окно и так уже скрыто (его
+        // кэш видимости никогда не переводился в true), и не выполнить
+        // реальный ShowWindow(SW_HIDE). Поэтому на Windows тоже скрываем
+        // напрямую через HWND — симметрично show().
+        #[cfg(target_os = "windows")]
+        hide_without_state_desync(&window);
+
+        #[cfg(not(target_os = "windows"))]
+        let _ = window.hide();
+    }
+
     /// Находится ли точка (физические координаты экрана) внутри окна оверлея.
     pub fn contains(&self, x: i32, y: i32) -> bool {
         let window = self.window();
@@ -55,51 +72,6 @@ impl OverlayWindow {
             size.width as i32,
             size.height as i32,
         )
-    }
-
-    pub fn hide(&self) {
-        let window = self.window();
-        let _ = window.hide();
-    }
-}
-
-/// Показывает окно и поднимает поверх всех окон, НЕ активируя его.
-///
-/// Обычный `show()` (SW_SHOW) делает окно активным: активное приложение
-/// теряет фокус, и Windows сворачивает fullscreen-плеер. SW_SHOWNA +
-/// SWP_NOACTIVATE показывают окно «пассивно» — фокус остаётся у плеера.
-#[cfg(target_os = "windows")]
-fn raise_without_activation(window: &WebviewWindow) {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        SetWindowPos, ShowWindow, HWND_TOPMOST, SW_SHOWNA, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-        SWP_SHOWWINDOW,
-    };
-
-    let Ok(raw) = window.hwnd() else {
-        return;
-    };
-
-    // HWND из версии windows-крейта, которую использует Tauri, приводим
-    // к нашему типу; cast работает и для isize-, и для pointer-repr.
-    let hwnd = HWND(raw.0 as *mut core::ffi::c_void);
-
-    unsafe {
-        // SW_SHOWNA: показать в текущих размере/позиции без активации.
-        let _ = ShowWindow(hwnd, SW_SHOWNA);
-
-        // Страховка z-order поверх всех окон (alwaysOnTop из конфига уже
-        // даёт TOPMOST, это повторное подтверждение при каждом показе);
-        // NOACTIVATE — не забирать фокус, NOMOVE/NOSIZE — не двигать.
-        let _ = SetWindowPos(
-            hwnd,
-            Some(HWND_TOPMOST),
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-        );
     }
 }
 
@@ -140,5 +112,61 @@ mod tests {
     #[test]
     fn zero_size_rect_never_contains() {
         assert!(!point_in_rect(100, 100, 100, 100, 0, 0));
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn hide_without_state_desync(window: &WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+
+    let Ok(raw) = window.hwnd() else {
+        return;
+    };
+
+    let hwnd = HWND(raw.0 as *mut core::ffi::c_void);
+
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_HIDE);
+    }
+}
+
+/// Показывает окно и поднимает поверх всех окон, НЕ активируя его.
+///
+/// Обычный `show()` (SW_SHOW) делает окно активным: активное приложение
+/// теряет фокус, и Windows сворачивает fullscreen-плеер. SW_SHOWNA +
+/// SWP_NOACTIVATE показывают окно «пассивно» — фокус остаётся у плеера.
+#[cfg(target_os = "windows")]
+fn raise_without_activation(window: &WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, ShowWindow, HWND_TOPMOST, SW_SHOWNA, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        SWP_SHOWWINDOW,
+    };
+
+    let Ok(raw) = window.hwnd() else {
+        return;
+    };
+
+    // HWND из версии windows-крейта, которую использует Tauri, приводим
+    // к нашему типу; cast работает и для isize-, и для pointer-repr.
+    let hwnd = HWND(raw.0 as *mut core::ffi::c_void);
+
+    unsafe {
+        // SW_SHOWNA: показать в текущих размере/позиции без активации.
+        let _ = ShowWindow(hwnd, SW_SHOWNA);
+
+        // Страховка z-order поверх всех окон (alwaysOnTop из конфига уже
+        // даёт TOPMOST, это повторное подтверждение при каждом показе);
+        // NOACTIVATE — не забирать фокус, NOMOVE/NOSIZE — не двигать.
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+        );
     }
 }

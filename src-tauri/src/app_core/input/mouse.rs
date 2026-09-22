@@ -114,14 +114,21 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                 });
             }
 
-            // Любая другая кнопка мыши — скрываем оверлей.
+            // Любая другая кнопка мыши — скрываем оверлей, если клик не по
+            // самому оверлею (иначе перетаскивание/клик по его кнопкам
+            // было бы невозможно — оверлей прятался бы на mouse-down).
             WM_LBUTTONDOWN
             | WM_LBUTTONDBLCLK
             | WM_RBUTTONDOWN
             | WM_RBUTTONDBLCLK
             | WM_XBUTTONDOWN
             | WM_XBUTTONDBLCLK => {
-                emit(InputEvent::Dismiss);
+                let info = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+
+                emit(InputEvent::DismissClick {
+                    x: info.pt.x,
+                    y: info.pt.y,
+                });
             }
 
             _ => {}

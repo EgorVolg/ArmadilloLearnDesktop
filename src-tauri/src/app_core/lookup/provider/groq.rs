@@ -69,7 +69,7 @@ impl GroqProvider {
             "messages": messages,
             "temperature": 0.2,
             "max_completion_tokens": 1024,
-            "reasoning_effort": "low",
+            "reasoning_effort": "medium",
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
