@@ -1,17 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./OverlayApp.css";
 import flag from "../../assets/Flag_of_Russia.png";
-import { LookupError, TranslationDataType } from "../../shared";
+import {
+  deleteWord,
+  errorText,
+  findWord,
+  LookupError,
+  onWordsChanged,
+  saveWord,
+  TranslationDataType,
+} from "../../shared";
 import { listen } from "@tauri-apps/api/event";
 import { Bookmark, BookmarkCheck, Language, Translate } from "../../assets";
 
 export const OverlayApp = () => {
-  const [check, setCheck] = useState(false);
+  // id слова в базе или null, если слово не сохранено.
+  const [savedId, setSavedId] = useState<number | null>(null);
+  // true, пока идёт сохранение/удаление (защита от двойного клика).
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<LookupError>();
 
   const [translationData, setTranslationData] = useState<TranslationDataType>({
     meaning: "",
     word: "",
+    sentence: "",
     sentence_translation: "",
     word_translation: "",
     synonyms: [],
@@ -55,18 +67,54 @@ export const OverlayApp = () => {
         return <span key={index}>{part}</span>;
       });
   };
+  const currentWordRef = useRef("");
+
+  // Проверяет, сохранено ли текущее слово в базе.
+  const refreshSaved = async () => {
+    const word = currentWordRef.current;
+
+    if (word === "") {
+      setSavedId(null);
+      return;
+    }
+
+    try {
+      const found = await findWord(word);
+
+      // Пока ждали ответ, пользователь мог кликнуть другое слово.
+      // Тогда этот ответ уже устарел — игнорируем его.
+      if (currentWordRef.current === word) {
+        setSavedId(found ? found.id : null);
+      }
+    } catch (e) {
+      console.error("findWord failed:", e);
+    }
+  };
 
   useEffect(() => {
     const unlisteners: Promise<() => void>[] = [
       listen<TranslationDataType>("lookup-result", (event) => {
         console.log("Translation data:", event.payload);
+
         setError(undefined);
         setTranslationData(event.payload);
+
+        currentWordRef.current = event.payload.word;
+        setSavedId(null);
+        refreshSaved();
       }),
 
       listen<LookupError>("lookup-error", (event) => {
         console.error("Lookup error!!!!!!:", event.payload.message);
+
+        currentWordRef.current = "";
+        setSavedId(null);
         setError(event.payload);
+      }),
+
+      // Слово могли удалить в главном окне — перепроверяем закладку.
+      onWordsChanged(() => {
+        refreshSaved();
       }),
     ];
 
@@ -77,34 +125,55 @@ export const OverlayApp = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const unlisteners: Promise<() => void>[] = [
-      listen<TranslationDataType>("lookup-result", (event) => {
-        console.log("Translation data:", event.payload);
+  // Клик по закладке: не сохранено → сохранить, сохранено → удалить.
+  const toggleBookmark = async () => {
+    if (busy || translationData.word === "") return;
 
-        setError(undefined);
-        setTranslationData(event.payload);
-      }),
+    setBusy(true);
 
-      listen<LookupError>("lookup-error", (event) => {
-        console.error("Lookup error!!!!!!:", event.payload.message);
+    try {
+      if (savedId !== null) {
+        await deleteWord(savedId);
+        setSavedId(null);
+      } else {
+        const saved = await saveWord({
+          word: translationData.word,
+          word_translation: translationData.word_translation,
+          meaning: translationData.meaning,
+          sentence: translationData.sentence,
+          sentence_translation: translationData.sentence_translation,
+          part_of_speech: translationData.part_of_speech,
+          topic: translationData.topic,
+          synonyms: translationData.synonyms,
+        });
 
-        setError(event.payload);
-      }),
-    ];
-
-    return () => {
-      unlisteners.forEach((unlisten) => {
-        unlisten.then((fn) => fn());
-      });
-    };
-  }, []);
+        if (currentWordRef.current === translationData.word) {
+          setSavedId(saved.id);
+        }
+      }
+    } catch (e) {
+      console.error("Bookmark failed:", errorText(e));
+      // Показываем правильное состояние из базы.
+      refreshSaved();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="overlay-app">
-      <button className="bookmark" onClick={() => setCheck(!check)}>
-        {check ? <Bookmark /> : <BookmarkCheck />}
-      </button>
+      {!error && translationData.word !== "" && (
+        <button
+          className="bookmark"
+          onClick={toggleBookmark}
+          disabled={busy}
+          title={
+            savedId !== null ? "Удалить из словаря" : "Сохранить в словарь"
+          }
+        >
+          {savedId !== null ? <BookmarkCheck /> : <Bookmark />}
+        </button>
+      )}
 
       <main className="container">
         {error ? (

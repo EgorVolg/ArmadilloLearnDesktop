@@ -392,7 +392,7 @@
     /*
      * На мобильном article растягивается
      * по содержимому.
-     */ 
+     */
     max-height: none;
 
     min-height: 0;
@@ -672,4 +672,114 @@
     overflow-wrap: break-word;
     word-break: break-word;
   }
+}
+/* =========================================================
+   WORDS: ВЫБРАННОЕ СЛОВО, ПУСТО, ОШИБКА
+   ========================================================= */
+
+.main-app__sidebar-item_active {
+  background: var(--bg-card-hover);
+  outline: 2px solid var(--color-text-active);
+}
+
+.words-empty {
+  font-family: Nunito;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.words-error {
+  font-family: Nunito;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ff8a80;
+}
+
+/* =========================================================
+     WORD: ТЕГИ, ПРИМЕР
+     ========================================================= */
+
+.word-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  span {
+    padding: 2px 10px;
+    border-radius: 10px;
+    border: var(--border);
+    background: var(--bg-card);
+    font-family: Nunito;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-text-active);
+  }
+}
+
+.main-app__article-section-content-translations-example
+  .word-example__translation {
+  display: block;
+  margin-top: 6px;
+  color: var(--color-text);
+}
+
+/* =========================================================
+     WORD: РЕДАКТИРОВАНИЕ
+     ========================================================= */
+
+.word-edit__input,
+.word-edit__textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: var(--border-input);
+  background: var(--bg-card);
+  color: var(--color-text-active);
+  font-family: Nunito;
+  font-size: 16px;
+  font-weight: 600;
+  resize: vertical;
+}
+
+/* =========================================================
+     WORD: КНОПКИ
+     ========================================================= */
+
+.word-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.word-actions__question {
+  font-family: Nunito;
+  font-weight: 700;
+  color: var(--color-text-active);
+}
+
+.word-actions__btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: var(--border);
+  background: var(--bg-select-button);
+  color: var(--color-text-active);
+  font-family: Nunito;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+}
+
+.word-actions__btn_danger {
+  background: var(--bg-delete-button);
 }
