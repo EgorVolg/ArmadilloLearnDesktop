@@ -4,6 +4,8 @@ mod app_core;
 use app::runtime::AppRuntime;
 use tauri::{Manager, WindowEvent};
 
+use crate::{app::commands, app_core::storage::repository::WordRepository};
+
 #[tauri::command]
 fn open_main_window(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
@@ -41,12 +43,24 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
+            // База словаря: %APPDATA%\com.volge.armadillo-learn-desktop\words.sqlite3
+            let db_path = app.path().app_data_dir()?.join("words.sqlite3");
+            let repository = WordRepository::open(&db_path)?;
+            app.manage(repository);
             let runtime = AppRuntime::new(app.handle().clone());
             app.manage(runtime);
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![open_main_window])
+        .invoke_handler(tauri::generate_handler![
+            open_main_window,
+            commands::save_word,
+            commands::list_words,
+            commands::get_word,
+            commands::find_word,
+            commands::update_word,
+            commands::delete_word,
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| {

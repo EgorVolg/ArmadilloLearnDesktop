@@ -94,7 +94,9 @@ impl GroqProvider {
             let body = response.text().unwrap_or_default();
 
             let hint = match status.as_u16() {
-                401 | 403 => " — проверь GROQ_API_KEY и что VPN пропускает этот трафик (RU-IP блокируется)",
+                401 | 403 => {
+                    " — проверь GROQ_API_KEY и что VPN пропускает этот трафик (RU-IP блокируется)"
+                }
                 429 => " — превышен лимит free-tier Groq",
                 _ => "",
             };
@@ -304,6 +306,7 @@ impl AiProvider for GroqProvider {
         Ok(LookupResult {
             word: word.to_string(),
             meaning: generated.meaning,
+            sentence: sentence.to_string(),
             sentence_translation,
             word_translation,
             synonyms: clean_synonyms(word, synonyms_to_vec(&generated.synonyms)),
@@ -399,6 +402,7 @@ mod tests {
         fn lookup(&self, _context: &str, _clicked_word: &str) -> Result<LookupResult, String> {
             Ok(LookupResult {
                 word: "primary".to_string(),
+                sentence: "Primary sentence.".to_string(),
                 sentence_translation: "Предложение от primary.".to_string(),
                 word_translation: "слово".to_string(),
                 meaning: "It means the thing from primary.".to_string(),

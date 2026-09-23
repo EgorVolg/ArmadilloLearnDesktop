@@ -276,10 +276,7 @@ impl LocalProvider {
     ///
     /// Возвращает распознанный объект и сырой текст ответа — сырой текст
     /// нужен корректирующему повтору как сообщение ассистента.
-    fn request_lookup(
-        &self,
-        messages: serde_json::Value,
-    ) -> Result<(LocalLookup, String), String> {
+    fn request_lookup(&self, messages: serde_json::Value) -> Result<(LocalLookup, String), String> {
         let request = json!({
             "model": ollama_model(),
             "messages": messages,
@@ -347,9 +344,8 @@ impl LocalProvider {
 
         let content = strip_json_fences(&response.message.content.unwrap_or_default());
 
-        let parsed: LocalLookup = serde_json::from_str(&content).map_err(|error| {
-            format!("Failed to parse lookup JSON: {error}\nContent: {content}")
-        })?;
+        let parsed: LocalLookup = serde_json::from_str(&content)
+            .map_err(|error| format!("Failed to parse lookup JSON: {error}\nContent: {content}"))?;
 
         Ok((parsed, content))
     }
@@ -640,9 +636,7 @@ pub(crate) fn align_word_translation(word_translation: &str, sentence_translatio
                 .iter()
                 .zip(needle.iter())
                 .all(|(from_sentence, from_word)| {
-                    from_sentence
-                        .to_lowercase()
-                        .eq(from_word.to_lowercase())
+                    from_sentence.to_lowercase().eq(from_word.to_lowercase())
                 });
 
             if matches {
@@ -867,7 +861,10 @@ mod tests {
         let prompt = system_prompt();
 
         for topic in TOPICS {
-            assert!(prompt.contains(topic), "промпт должен называть тему {topic:?}");
+            assert!(
+                prompt.contains(topic),
+                "промпт должен называть тему {topic:?}"
+            );
         }
     }
 
@@ -929,9 +926,15 @@ mod tests {
         let model = std::env::var("ARMADILLO_OLLAMA_MODEL").unwrap_or_else(|_| ollama_model());
         let cases: [(&str, &str); 4] = [
             ("More instructions will follow.", "instructions"),
-            ("If belting my husband or Matarou makes you feel better", "belting"),
+            (
+                "If belting my husband or Matarou makes you feel better",
+                "belting",
+            ),
             ("The armadillo rolled into a ball", "armadillo"),
-            ("She folded the letter in half before putting it away", "folded"),
+            (
+                "She folded the letter in half before putting it away",
+                "folded",
+            ),
         ];
 
         let provider = LocalProvider::new().expect("провайдер должен создаваться");
@@ -956,7 +959,6 @@ mod tests {
             }
         }
     }
-
 
     #[test]
     #[ignore = "требует запущенного Ollama: реальный вызов модели"]
@@ -1219,10 +1221,7 @@ mod tests {
 
     #[test]
     fn fences_are_stripped() {
-        assert_eq!(
-            strip_json_fences("```json\n{\"a\":1}\n```"),
-            "{\"a\":1}"
-        );
+        assert_eq!(strip_json_fences("```json\n{\"a\":1}\n```"), "{\"a\":1}");
 
         assert_eq!(strip_json_fences("  {\"a\":1}  "), "{\"a\":1}");
     }
@@ -1367,6 +1366,7 @@ impl AiProvider for LocalProvider {
         Ok(LookupResult {
             word: word.to_string(),
             meaning: generated.meaning,
+            sentence: sentence.to_string(),
             sentence_translation,
             word_translation,
             synonyms: clean_synonyms(word, synonyms_to_vec(&generated.synonyms)),

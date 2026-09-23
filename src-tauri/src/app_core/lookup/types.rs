@@ -1,9 +1,10 @@
-use serde::{ Deserialize, Serialize };
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LookupResult {
     pub meaning: String,
     pub word: String,
+    pub sentence: String,
     pub sentence_translation: String,
     pub word_translation: String,
     pub synonyms: Vec<String>,
