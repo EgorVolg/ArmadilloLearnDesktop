@@ -140,8 +140,8 @@ fn hide_without_state_desync(window: &WebviewWindow) {
 fn raise_without_activation(window: &WebviewWindow) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        SetWindowPos, ShowWindow, HWND_TOPMOST, SW_SHOWNA, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-        SWP_SHOWWINDOW,
+        SetWindowPos, ShowWindow, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        SWP_SHOWWINDOW, SW_SHOWNA,
     };
 
     let Ok(raw) = window.hwnd() else {

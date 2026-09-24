@@ -9,9 +9,9 @@ use windows::Win32::{
     UI::{
         Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_P},
         WindowsAndMessaging::{
-            CallNextHookEx, DispatchMessageW, GetMessageW, KBDLLHOOKSTRUCT, PeekMessageW,
-            PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
-            PEEK_MESSAGE_REMOVE_TYPE, WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN, MSG,
+            CallNextHookEx, DispatchMessageW, GetMessageW, PeekMessageW, PostThreadMessageW,
+            SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, KBDLLHOOKSTRUCT, MSG,
+            PEEK_MESSAGE_REMOVE_TYPE, WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN,
         },
     },
 };

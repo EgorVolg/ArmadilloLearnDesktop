@@ -176,7 +176,10 @@ mod tests {
     fn capture_smoke_test_saves_debug_crop() {
         let captured = capture_screen(400, 300).expect("capture_screen failed");
 
-        assert_eq!(captured.image.data.len(), (captured.image.width * captured.image.height * 3) as usize);
+        assert_eq!(
+            captured.image.data.len(),
+            (captured.image.width * captured.image.height * 3) as usize
+        );
 
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
@@ -186,10 +189,18 @@ mod tests {
             .expect("screenshots dir missing")
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
-            .filter(|path| path.file_name().map_or(false, |name| name.to_string_lossy().starts_with("ocr_crop_")))
+            .filter(|path| {
+                path.file_name().map_or(false, |name| {
+                    name.to_string_lossy().starts_with("ocr_crop_")
+                })
+            })
             .collect();
 
-        assert!(!crops.is_empty(), "no ocr_crop_*.png found in {}", dir.display());
+        assert!(
+            !crops.is_empty(),
+            "no ocr_crop_*.png found in {}",
+            dir.display()
+        );
 
         crops.sort_by_key(|path| path.metadata().unwrap().modified().unwrap());
 
@@ -197,7 +208,11 @@ mod tests {
 
         let metadata = std::fs::metadata(latest).unwrap();
 
-        println!("Latest crop: {} ({} bytes)", latest.display(), metadata.len());
+        println!(
+            "Latest crop: {} ({} bytes)",
+            latest.display(),
+            metadata.len()
+        );
 
         assert!(metadata.len() > 0, "saved crop is empty");
     }

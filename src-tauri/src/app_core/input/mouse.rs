@@ -9,9 +9,9 @@ use windows::Win32::{
     UI::WindowsAndMessaging::{
         CallNextHookEx, DispatchMessageW, GetMessageW, PeekMessageW, PostThreadMessageW,
         SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, MSG, MSLLHOOKSTRUCT,
-        PEEK_MESSAGE_REMOVE_TYPE, WH_MOUSE_LL, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
-        WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN,
-        WM_XBUTTONDBLCLK, WM_XBUTTONDOWN,
+        PEEK_MESSAGE_REMOVE_TYPE, WH_MOUSE_LL, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_MBUTTONDBLCLK,
+        WM_MBUTTONDOWN, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_XBUTTONDBLCLK,
+        WM_XBUTTONDOWN,
     },
 };
 
@@ -117,12 +117,8 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
             // Любая другая кнопка мыши — скрываем оверлей, если клик не по
             // самому оверлею (иначе перетаскивание/клик по его кнопкам
             // было бы невозможно — оверлей прятался бы на mouse-down).
-            WM_LBUTTONDOWN
-            | WM_LBUTTONDBLCLK
-            | WM_RBUTTONDOWN
-            | WM_RBUTTONDBLCLK
-            | WM_XBUTTONDOWN
-            | WM_XBUTTONDBLCLK => {
+            WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONDBLCLK
+            | WM_XBUTTONDOWN | WM_XBUTTONDBLCLK => {
                 let info = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
 
                 emit(InputEvent::DismissClick {

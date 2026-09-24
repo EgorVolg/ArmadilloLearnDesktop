@@ -1,10 +1,10 @@
 pub mod image;
 pub mod marker;
 pub mod pipeline;
-pub mod prompt; 
+pub mod prompt;
 pub mod time;
 pub mod types;
 
 pub mod provider;
 
-pub use types::{ LookupError, LookupResult };
+pub use types::{LookupError, LookupResult};

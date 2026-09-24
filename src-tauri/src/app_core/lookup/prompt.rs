@@ -1,5 +1,4 @@
-pub const LOOKUP_SYSTEM_PROMPT: &str =
-    r#"
+pub const LOOKUP_SYSTEM_PROMPT: &str = r#"
 You are an English language learning assistant.
 Look ONLY at the provided image.
 There is a yellow marker with a small cross on the image.

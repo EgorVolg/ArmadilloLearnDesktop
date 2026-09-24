@@ -31,8 +31,7 @@ pub struct MonitorManager;
 
 impl MonitorManager {
     pub fn all() -> Result<Vec<MonitorInfo>, String> {
-        let screens = Screen::all()
-            .map_err(|e| format!("failed to enumerate screens: {e}"))?;
+        let screens = Screen::all().map_err(|e| format!("failed to enumerate screens: {e}"))?;
 
         screens
             .iter()
@@ -56,10 +55,6 @@ impl MonitorManager {
         Self::all()?
             .into_iter()
             .find(|monitor| monitor.contains_global_point(x, y))
-            .ok_or_else(|| {
-                format!(
-                    "no monitor contains global point ({x}, {y})"
-                )
-            })
+            .ok_or_else(|| format!("no monitor contains global point ({x}, {y})"))
     }
 }

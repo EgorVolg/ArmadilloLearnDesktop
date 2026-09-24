@@ -7,11 +7,10 @@ use std::{
 use tauri::AppHandle;
 
 use crate::app_core::{
-    input::{
-        event::InputEvent, hotkey::HotkeyHook, keyboard::KeyboardHook, mouse::MouseHook,
-    },
+    input::{event::InputEvent, hotkey::HotkeyHook, keyboard::KeyboardHook, mouse::MouseHook},
     lookup::{
-        pipeline::ClickPipeline, provider::{_trait::AiProvider, build_provider, LocalProvider},
+        pipeline::ClickPipeline,
+        provider::{_trait::AiProvider, build_provider, LocalProvider},
     },
     ocr::engine::OcrEngine,
     overlay::manager::OverlayManager,

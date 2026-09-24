@@ -508,8 +508,8 @@ fn extract_sentence_context(ocr_boxes: &[OcrBox], clicked_index: usize) -> Strin
 
         // Чужой кегль (например, первый бокс следующей строки — UI) —
         // не граница предложения: его точка не должна обрывать обход.
-        let current_is_foreign = traversed_boxes > 0
-            && !text_heights_similar(reference, box_text_height(current));
+        let current_is_foreign =
+            traversed_boxes > 0 && !text_heights_similar(reference, box_text_height(current));
 
         // Если текущий box уже заканчивает предложение,
         // включаем его и останавливаемся.
@@ -833,8 +833,7 @@ fn lines_can_be_continuous(ocr_boxes: &[OcrBox], previous: &[usize], current: &[
     if !text_heights_similar(previous_dominant, current_dominant) {
         println!(
             "[sentence] line transition rejected: heights {:.1}px vs {:.1}px",
-            previous_dominant,
-            current_dominant
+            previous_dominant, current_dominant
         );
 
         return false;
@@ -1126,7 +1125,7 @@ fn ends_sentence(text: &str) -> bool {
     without_closing.ends_with('.')
         || without_closing.ends_with('?')
         || without_closing.ends_with('!')
-        || without_closing.ends_with(';') 
+        || without_closing.ends_with(';')
         || without_closing.ends_with('…')
 }
 
@@ -1328,7 +1327,13 @@ mod tests {
     fn subtitle_over_ui_boxes() -> Vec<OcrBox> {
         vec![
             // Терминал над субтитрами.
-            box_at(0.0, 0.0, 400.0, 36.0, "Change directory into the new project."),
+            box_at(
+                0.0,
+                0.0,
+                400.0,
+                36.0,
+                "Change directory into the new project.",
+            ),
             // Мелкий UI между терминалом и субтитрами.
             box_at(40.0, 44.0, 300.0, 76.0, "~/Documents/Builds"),
             // Строка ввода и субтитры на одном визуальном ряду.
@@ -1370,7 +1375,13 @@ mod tests {
     fn wrapped_paragraph_of_same_font_still_joins() {
         let ocr_boxes = vec![
             box_at(40.0, 0.0, 300.0, 32.0, "The readiness and zeal with which"),
-            box_at(40.0, 44.0, 340.0, 76.0, "these builders set about their work."),
+            box_at(
+                40.0,
+                44.0,
+                340.0,
+                76.0,
+                "these builders set about their work.",
+            ),
         ];
 
         let clicked_index = ocr_boxes
@@ -1604,8 +1615,8 @@ mod tests {
             .join("ocr")
             .join("ppocrv5-en");
 
-        let mut engine =
-            crate::app_core::ocr::engine::OcrEngine::new(model_dir).expect("failed to init OCR engine");
+        let mut engine = crate::app_core::ocr::engine::OcrEngine::new(model_dir)
+            .expect("failed to init OCR engine");
 
         let boxes = engine.recognize(&crop).expect("OCR failed");
 
@@ -1639,7 +1650,6 @@ mod tests {
 
         println!("\nCONTEXT: \"{context}\"");
     }
-
 
     /// Трёхстрочные центрированные субтитры, на тех же визуальных рядах —
     /// сайдбар и панель перевода с мелким UI (сцена из реального кропа).

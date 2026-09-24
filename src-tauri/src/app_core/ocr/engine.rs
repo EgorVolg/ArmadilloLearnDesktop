@@ -549,12 +549,12 @@ fn is_acceptable_ocr_text(text: &str) -> bool {
 
 /// Буквы латиницы, включая акцентированные (café, naïve, señor).
 fn is_latin_letter(ch: char) -> bool {
-    ch.is_ascii_alphabetic()
-        || matches!(ch, '\u{00C0}'..='\u{00FF}' | '\u{0100}'..='\u{024F}')
+    ch.is_ascii_alphabetic() || matches!(ch, '\u{00C0}'..='\u{00FF}' | '\u{0100}'..='\u{024F}')
 }
 
 fn has_non_latin_letters(text: &str) -> bool {
-    text.chars().any(|ch| ch.is_alphabetic() && !is_latin_letter(ch))
+    text.chars()
+        .any(|ch| ch.is_alphabetic() && !is_latin_letter(ch))
 }
 
 fn has_embedded_digits(text: &str) -> bool {
@@ -565,15 +565,11 @@ fn has_embedded_digits(text: &str) -> bool {
             continue;
         }
 
-        let previous_is_letter =
-            index > 0 && chars[index - 1].is_ascii_alphabetic();
+        let previous_is_letter = index > 0 && chars[index - 1].is_ascii_alphabetic();
 
-        let next_is_letter =
-            index + 1 < chars.len() && chars[index + 1].is_ascii_alphabetic();
+        let next_is_letter = index + 1 < chars.len() && chars[index + 1].is_ascii_alphabetic();
 
-        if (previous_is_letter || next_is_letter)
-            && !alphanumeric_token_is_allowed(&chars)
-        {
+        if (previous_is_letter || next_is_letter) && !alphanumeric_token_is_allowed(&chars) {
             return true;
         }
     }
@@ -643,7 +639,10 @@ fn alphanumeric_token_is_allowed(chars: &[char]) -> bool {
     if letters_before == 0 && digits >= 1 && letters_after <= 2 {
         let suffix: String = chars[chars.len() - letters_after..].iter().collect();
 
-        if matches!(suffix.to_ascii_lowercase().as_str(), "st" | "nd" | "rd" | "th") {
+        if matches!(
+            suffix.to_ascii_lowercase().as_str(),
+            "st" | "nd" | "rd" | "th"
+        ) {
             return true;
         }
     }
@@ -742,12 +741,10 @@ mod tests {
 
         let timed = engine
             .engine
-            .run_image_timed(&image::RgbImage::from_raw(
-                crop.width,
-                crop.height,
-                crop.data.clone(),
+            .run_image_timed(
+                &image::RgbImage::from_raw(crop.width, crop.height, crop.data.clone())
+                    .expect("bad crop buffer"),
             )
-            .expect("bad crop buffer"))
             .expect("OCR failed");
 
         println!(
@@ -892,34 +889,28 @@ mod tests {
     fn text_filter_separates_latin_from_garbage() {
         // Латиница, пунктуация, числа, акцентированная латиница, white-list.
         for text in [
-            "dodge",
-            "don't",
-            "10:30",
-            "70%",
-            "café",
-            "naïve",
-            "2nd",
-            "MP3",
-            "F15",
-            "4K",
-            "1080p",
-            "1st",
-            "v2",
-            "3D",
+            "dodge", "don't", "10:30", "70%", "café", "naïve", "2nd", "MP3", "F15", "4K", "1080p",
+            "1st", "v2", "3D",
         ] {
             assert!(is_acceptable_ocr_text(text), "«{text}» должно остаться");
         }
 
         // Прямая не-латиница Unicode: EN-модель не может её выдать осмысленно.
         for text in ["Привет", "мир?", "日本語", "한국어", "مرحبا"] {
-            assert!(!is_acceptable_ocr_text(text), "«{text}» должно отфильтроваться");
+            assert!(
+                !is_acceptable_ocr_text(text),
+                "«{text}» должно отфильтроваться"
+            );
         }
 
         // Транслитерированная кириллица lookalike-символами (реальный вывод
         // EN-модели на русских субтитрах, см. метрики). Чисто прописной мусор
         // вида "NOBO"/"4TO" неотличим от аббревиатур и остаётся (задокументировано).
         for text in ["6bl", "cgeran6bl", "4TO-TO"] {
-            assert!(!is_acceptable_ocr_text(text), "«{text}» должно отфильтроваться");
+            assert!(
+                !is_acceptable_ocr_text(text),
+                "«{text}» должно отфильтроваться"
+            );
         }
     }
 
@@ -951,8 +942,9 @@ mod tests {
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
             .filter(|path| {
-                path.file_name()
-                    .map_or(false, |name| name.to_string_lossy().starts_with("ocr_crop_"))
+                path.file_name().map_or(false, |name| {
+                    name.to_string_lossy().starts_with("ocr_crop_")
+                })
             })
             .collect();
 
@@ -1110,8 +1102,9 @@ mod tests {
         // Прогрев обеих форм входа: полный кадр и кроп дают разные формы
         // тензора детектора, каждая первая итерация платит за аллокации.
         // run_image_timed используется напрямую, чтобы не трогать кэш recognize.
-        let region_rgb_image = image::RgbImage::from_raw(region.width, region.height, region.data.clone())
-            .expect("invalid region buffer");
+        let region_rgb_image =
+            image::RgbImage::from_raw(region.width, region.height, region.data.clone())
+                .expect("invalid region buffer");
 
         let full_rgb_image = image::RgbImage::from_raw(full.width, full.height, full.data.clone())
             .expect("invalid full buffer");
